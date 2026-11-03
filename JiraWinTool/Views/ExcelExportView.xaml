@@ -1,0 +1,48 @@
+<UserControl x:Class="JiraWinTool.Views.ExcelExportView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:JiraWinTool.Views.Controls">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20">
+            <controls:PageHeader Title="Excel 导出" Subtitle="导出 REQ 列表到 Excel 并生成通知邮件" Icon="📊"
+                                 HeaderColor="#34C759" Margin="0,0,0,16"/>
+
+            <controls:LabeledField Label="截止日期:" Placeholder="yyyy-MM-dd" x:Name="BeforeDateField"/>
+
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="90"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="输出路径:" Style="{StaticResource FormLabel}" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" x:Name="OutFilePathBox" Height="28" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="2" Content="选择..." Height="28" Margin="8,0,0,0" Padding="10,0"
+                        Click="OutputPathButton_Click"/>
+            </Grid>
+
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="90"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="模板路径:" Style="{StaticResource FormLabel}" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" x:Name="TemplatePathBox" Height="28" VerticalContentAlignment="Center"/>
+                <Button Grid.Column="2" Content="选择..." Height="28" Margin="8,0,0,0" Padding="10,0"
+                        Click="TemplatePathButton_Click"/>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <Button x:Name="ExportButton" Content="导出" MinWidth="80" Height="30" Click="ExportButton_Click"/>
+                <Button x:Name="ExportEmailButton" Content="导出并生成邮件" Height="30" Margin="12,0,0,0" Padding="10,0"
+                        Click="ExportEmailButton_Click"/>
+                <Button Content="清空日志" Height="30" Margin="12,0,0,0" Padding="10,0" Click="ClearButton_Click"/>
+                <Button Content="复制结果" Height="30" Margin="12,0,0,0" Padding="10,0" Click="CopyButton_Click"/>
+                <Button Content="修改用户映射" Height="30" Margin="12,0,0,0" Padding="10,0" Click="UserMappingButton_Click"/>
+            </StackPanel>
+
+            <controls:LogView x:Name="LogViewControl" MinHeight="200" Margin="0,16,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

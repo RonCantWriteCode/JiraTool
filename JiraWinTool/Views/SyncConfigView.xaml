@@ -1,0 +1,103 @@
+<UserControl x:Class="JiraWinTool.Views.SyncConfigView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24" MaxWidth="680">
+
+            <!-- WebDAV 连接 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="WebDAV 连接" Style="{StaticResource CardTitle}"/>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="WebDAV 地址" Style="{StaticResource FormLabel}"/>
+                        <TextBox x:Name="UrlBox" Grid.Column="1" Height="28" VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="用户名" Style="{StaticResource FormLabel}"/>
+                        <TextBox x:Name="UserBox" Grid.Column="1" Height="28" VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="密码" Style="{StaticResource FormLabel}"/>
+                        <PasswordBox x:Name="PasswordBox" Grid.Column="1" Height="28"
+                                     VerticalContentAlignment="Center"/>
+                        <TextBox x:Name="PasswordTextBox" Grid.Column="1" Height="28"
+                                 VerticalContentAlignment="Center" Visibility="Collapsed"/>
+                        <Button Grid.Column="2" Content="👁" Width="32" Height="28" Margin="6,0,0,0"
+                                ToolTip="显示/隐藏密码" Click="TogglePasswordVisibility_Click"/>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="远程路径" Style="{StaticResource FormLabel}"/>
+                        <TextBox x:Name="RemotePathBox" Grid.Column="1" Height="28"
+                                 VerticalContentAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- 自动同步 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="自动同步" Style="{StaticResource CardTitle}"/>
+
+                    <CheckBox x:Name="AutoSyncCheckBox" Content="启用自动同步" Margin="0,0,0,8"
+                              Checked="AutoSync_CheckedChanged" Unchecked="AutoSync_CheckedChanged"/>
+
+                    <StackPanel x:Name="AutoSyncDetailPanel" Visibility="Collapsed">
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="同步频率" Style="{StaticResource FormLabel}"/>
+                            <ComboBox x:Name="IntervalComboBox" Grid.Column="1" Height="28"
+                                      HorizontalAlignment="Left" MinWidth="140"
+                                      VerticalContentAlignment="Center"/>
+                        </Grid>
+                        <StackPanel x:Name="LastSyncPanel" Orientation="Horizontal" Visibility="Collapsed">
+                            <TextBlock Text="上次同步:" Foreground="#888888" FontSize="12"/>
+                            <TextBlock x:Name="LastSyncText" Foreground="#888888" FontSize="12" Margin="6,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 操作 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="操作" Style="{StaticResource CardTitle}"/>
+                    <Grid>
+                        <Button x:Name="TestButton" Content="测试连接" Width="90" Height="30"
+                                HorizontalAlignment="Left" Click="TestConnection_Click"/>
+                        <Button x:Name="SaveButton" Content="保存" Width="90" Height="30"
+                                HorizontalAlignment="Right" Click="Save_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="TestResultText" Margin="0,10,0,0" FontSize="12" TextWrapping="Wrap"
+                               Visibility="Collapsed"/>
+                    <TextBlock x:Name="SaveResultText" Foreground="Green" Margin="0,10,0,0" FontSize="12"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

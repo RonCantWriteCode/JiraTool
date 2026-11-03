@@ -1,0 +1,21 @@
+.DS_Store
+._*
+
+# Swift build artifacts
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# Xcode
+*.xcuserstate
+
+# Compiled apps
+*.app/
+
+# Windows build output
+JiraWinTool/bin/
+JiraWinTool/obj/

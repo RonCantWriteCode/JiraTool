@@ -1,0 +1,216 @@
+<UserControl x:Class="JiraWinTool.Views.OACreateReqView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:JiraWinTool.Views.Controls"
+             x:Name="Root">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20">
+            <!-- 页头 -->
+            <controls:PageHeader x:Name="Header"
+                Title="OA 创建 REQ"
+                Subtitle="根据 OA 签报链接自动解析并创建『系统需求』REQ"
+                Icon="🔗" HeaderColor="#F97316"/>
+
+            <!-- OA 链接与模板 REQ -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,12,0,12">
+                <StackPanel>
+                    <TextBlock Text="OA 链接" FontSize="14" FontWeight="SemiBold" Foreground="#F97316" Margin="0,0,0,12"/>
+                    <controls:LabeledField Label="OA 链接"
+                        Placeholder="https://oa.sinosafe.com.cn/km/review/km_review_main/kmReviewMain.do?method=view&amp;fdId=..."
+                        Text="{Binding OALink, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <controls:LabeledField Label="模板 REQ"
+                        Placeholder="如 REQ-12345（用作字段参考；首次填入后自动保存）"
+                        Text="{Binding TemplateReqKey, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="ParseBtn" Content="解析 OA 页面" Width="140" Height="34"
+                                Background="#F97316" Foreground="White" BorderThickness="0"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Click="ParseBtn_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+
+                        <TextBlock x:Name="ParseProgress" Text="" Foreground="#F97316"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" FontSize="13"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 解析结果 -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="解析结果（可手工修正）" FontSize="14" FontWeight="SemiBold" Foreground="#3B82F6" Margin="0,0,0,12"/>
+                    <controls:LabeledField Label="标题"
+                        Placeholder="OA 标题"
+                        Text="{Binding ParseTitle, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="拟稿人"
+                        Placeholder="OA 拟稿人"
+                        Text="{Binding ParseDrafter, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="拟稿部门(原)"
+                        Placeholder="OA 拟稿部门原文"
+                        Text="{Binding ParseDraftDeptOriginal, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="提交部门关键字"
+                        Placeholder="如『重客渠道部』，将写入『需求提交部门』"
+                        Text="{Binding ParseDraftDeptKeyword, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="申请单编号"
+                        Placeholder="作为签报号"
+                        Text="{Binding ParseApplyNo, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="REM 号"
+                        Placeholder="多个用英文逗号分隔，如 REM-123,REM-456"
+                        Text="{Binding ParseRemText, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="申请内容" Style="{StaticResource FormLabel}" VerticalAlignment="Top" Margin="0,4,0,0"/>
+                        <TextBox Grid.Column="1" Height="140" AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Text="{Binding ParseContent, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="12"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- OA 附件 -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="OA 附件（勾选要上传的文件）" FontSize="14" FontWeight="SemiBold" Foreground="#A855F7" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="NoAttachmentHint" Text="暂无解析到的附件。点击解析后此处将展示 OA 中可下载的附件。"
+                               FontSize="12" Foreground="#888888"/>
+                    <ItemsControl x:Name="AttachmentList" Visibility="Collapsed">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,6">
+                                    <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="12"/>
+                                            <TextBlock Text="{Binding Url}" FontSize="10" Foreground="#888888"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="500"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- 固定字段（可修改保存） -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="将写入的固定字段（可修改，自动保存）" FontSize="14" FontWeight="SemiBold" Foreground="#6B7280" Margin="0,0,0,12"/>
+                    <controls:LabeledField Label="系统名称（父级）"
+                        Placeholder="如『线条线』"
+                        Text="{Binding FixedSystemParent, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="系统名称（子级）"
+                        Placeholder="如『非车-投保交易系统』"
+                        Text="{Binding FixedSystemChild, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="责任科室"
+                        Placeholder="如『承保开发室』"
+                        Text="{Binding FixedDutyDept, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="分公司"
+                        Placeholder="如『总公司』"
+                        Text="{Binding FixedBranchCompany, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="科室小组"
+                        Placeholder="留空则复制模板值"
+                        Text="{Binding FixedGroupName, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="是否复制需求"
+                        Placeholder="如『否』"
+                        Text="{Binding FixedIsCopyReq, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="是否复杂需求"
+                        Placeholder="如『否』"
+                        Text="{Binding FixedIsComplexReq, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="需求分类"
+                        Placeholder="如『产品』"
+                        Text="{Binding FixedReqCategory, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="是否计价"
+                        Placeholder="如『是』"
+                        Text="{Binding FixedIsPricing, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="标签"
+                        Placeholder="如『计价』，多个用英文逗号分隔"
+                        Text="{Binding FixedLabels, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <controls:LabeledField Label="经办人"
+                        Placeholder="登录账号"
+                        Text="{Binding FixedAssignee, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="120"/>
+                    <Grid Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="签报链接" Style="{StaticResource FormLabel}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding OALink, ElementName=Root}" FontSize="13"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- 执行 -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock Text="执行" FontSize="14" FontWeight="SemiBold" Foreground="#22C55E" Margin="0,0,0,12"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <Button x:Name="CreateBtn" Content="创建 REQ" Width="120" Height="34"
+                                Background="#22C55E" Foreground="White" BorderThickness="0"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Click="CreateBtn_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <Button Content="清空" Width="80" Height="34" Margin="8,0,0,0"
+                                Background="#E5E7EB" Foreground="#374151" BorderThickness="0"
+                                FontSize="13" Cursor="Hand" Click="ClearBtn_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <Button x:Name="OpenBtn" Content="打开 REQ" Width="100" Height="34" Margin="8,0,0,0"
+                                Background="#3B82F6" Foreground="White" BorderThickness="0"
+                                FontSize="13" Cursor="Hand" Click="OpenBtn_Click" Visibility="Collapsed">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <TextBlock x:Name="CreateProgress" Text="" Foreground="#22C55E"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" FontSize="13"/>
+                    </StackPanel>
+                    <controls:LogView x:Name="LogViewControl" Logs="{Binding Logs, ElementName=Root}" MinHeight="200"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

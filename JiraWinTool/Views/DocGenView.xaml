@@ -1,0 +1,33 @@
+<UserControl x:Class="JiraWinTool.Views.DocGenView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:JiraWinTool.Views.Controls">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20">
+            <controls:PageHeader Title="文档生成" Subtitle="根据 REQ 信息生成 Markdown 设计文档模板" Icon="📝"
+                                 HeaderColor="#007AFF" Margin="0,0,0,16"/>
+
+            <controls:LabeledField Label="REQ ID:" Placeholder="REQ-XXXXX" x:Name="ReqIdField"/>
+            <controls:LabeledField Label="需求名称:" Placeholder="输入需求名称" x:Name="ReqNameField"/>
+            <controls:LabeledField Label="分类:" Placeholder="设计文档" Text="设计文档" x:Name="CategoriesField"/>
+            <controls:LabeledField Label="标签:" Placeholder="用逗号分隔" Text="推返修,设计文档" x:Name="TagsField"/>
+            <controls:LabeledField Label="描述:" Placeholder="需求描述" x:Name="DescriptionField"/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <Button x:Name="GenerateButton" Content="生成" MinWidth="80" Height="30" Click="GenerateButton_Click"/>
+                <Button x:Name="CopyTitleButton" Content="复制标题" Height="30" Margin="12,0,0,0" Padding="10,0"
+                        Click="CopyTitleButton_Click"/>
+                <Button x:Name="CopyContentButton" Content="复制内容" Height="30" Margin="12,0,0,0" Padding="10,0"
+                        Click="CopyContentButton_Click"/>
+            </StackPanel>
+
+            <TextBlock Text="标题:" FontWeight="Bold" Margin="0,16,0,4" x:Name="TitleLabel" Visibility="Collapsed"/>
+            <Border Background="#40FFF3CD" CornerRadius="4" Padding="8" x:Name="TitleResultBox" Visibility="Collapsed">
+                <TextBlock x:Name="TitleResult" TextWrapping="Wrap"/>
+            </Border>
+
+            <TextBlock Text="内容:" FontWeight="Bold" Margin="0,16,0,4" x:Name="ContentLabel" Visibility="Collapsed"/>
+            <controls:LogView x:Name="ContentLogView" MinHeight="200"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

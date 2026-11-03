@@ -1,0 +1,69 @@
+<Window x:Class="JiraWinTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Jira工具" Width="1150" Height="720" MinWidth="900" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="#FAFAFA">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="190" MinWidth="150" MaxWidth="300"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 侧边导航 -->
+        <Border Grid.Column="0" Background="#F0F0F0" BorderBrush="#DDDDDD" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="Jira工具" FontSize="16" FontWeight="Bold" Margin="14,12,14,8"/>
+
+                <TreeView x:Name="NavTree" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                          Padding="4" SelectedItemChanged="NavTree_SelectedItemChanged">
+                    <TreeView.Resources>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="Padding" Value="8,5"/>
+                            <Setter Property="FontSize" Value="13"/>
+                        </Style>
+                    </TreeView.Resources>
+
+                    <TreeViewItem Header="OA创建REQ" Tag="oaCreateReq"/>
+                    <TreeViewItem Header="邮件创建REQ" Tag="emailCreateReq"/>
+                    <TreeViewItem Header="OA流程完成" Tag="oaProcessComplete"/>
+                    <TreeViewItem Header="创建发布" Tag="publish"/>
+                    <TreeViewItem Header="版本管理" Tag="version"/>
+                    <TreeViewItem Header="配置" Tag="config" IsExpanded="False">
+                        <TreeViewItem Header="Jira配置" Tag="cfg:jira"/>
+                        <TreeViewItem Header="同步配置" Tag="cfg:sync"/>
+                        <TreeViewItem Header="数据库配置" Tag="cfg:db"/>
+                    </TreeViewItem>
+                    <TreeViewItem Header="收藏Jira" Tag="favorite" IsExpanded="True">
+                        <TreeViewItem Header="Self-Jira" Tag="fav:selfJira"/>
+                        <TreeViewItem Header="版本需求" Tag="fav:versionReq"/>
+                        <TreeViewItem Header="publish" Tag="fav:publish"/>
+                        <TreeViewItem Header="DC" Tag="fav:dc"/>
+                    </TreeViewItem>
+                    <TreeViewItem Header="不常用" Tag="infrequent" IsExpanded="False">
+                        <TreeViewItem Header="Excel导出" Tag="excel"/>
+                        <TreeViewItem Header="通知生成" Tag="notice"/>
+                        <TreeViewItem Header="字段更新" Tag="updateField"/>
+                        <TreeViewItem Header="文档生成" Tag="docGen"/>
+                    </TreeViewItem>
+                </TreeView>
+
+                <TextBlock x:Name="VersionText" Grid.Row="2" Margin="10,6" FontSize="11"
+                           Foreground="#888888"/>
+            </Grid>
+        </Border>
+
+        <GridSplitter Grid.Column="1" Width="3" HorizontalAlignment="Center"
+                      VerticalAlignment="Stretch" Background="#DDDDDD"/>
+
+        <!-- 内容区 -->
+        <ContentControl Grid.Column="2" x:Name="PageContent" Focusable="False"/>
+    </Grid>
+</Window>

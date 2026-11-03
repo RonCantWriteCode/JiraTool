@@ -1,0 +1,87 @@
+<UserControl x:Class="JiraWinTool.Views.OAProcessCompleteView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:JiraWinTool.Views.Controls"
+             x:Name="Root">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20">
+            <!-- 页头 -->
+            <controls:PageHeader x:Name="Header"
+                Title="OA 流程完成"
+                Subtitle="解析 OA 审批流程中的 REQ 需求号"
+                Icon="✅" HeaderColor="#22C55E"/>
+
+            <!-- 输入区 -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,12,0,12">
+                <StackPanel>
+                    <TextBlock Text="输入" FontSize="14" FontWeight="SemiBold" Foreground="#22C55E" Margin="0,0,0,12"/>
+                    <controls:LabeledField Label="OA 链接"
+                        Placeholder="https://oa.sinosafe.com.cn/km/review/..."
+                        Text="{Binding OALink, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <controls:LabeledField Label="操作人"
+                        Placeholder="审核意见中的操作人姓名"
+                        Text="{Binding OperatorName, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <controls:LabeledField Label="REQ"
+                        Placeholder="解析到的 REQ 需求号（可手动修改）"
+                        Text="{Binding REQNumber, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <controls:LabeledField Label="关联REQ"
+                        Placeholder="其他关联的 REQ 编号，逗号分隔（可空）"
+                        Text="{Binding RelatedREQ, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button x:Name="ParseBtn" Content="OA解析REQ" Width="140" Height="34"
+                                Background="#22C55E" Foreground="White" BorderThickness="0"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Click="ParseBtn_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <Button x:Name="DownloadPDFBtn" Content="下载PDF上传REQ" Width="150" Height="34"
+                                Margin="8,0,0,0"
+                                Background="#F97316" Foreground="White" BorderThickness="0"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Click="DownloadPDFBtn_Click">
+                            <Button.Resources>
+                                <Style TargetType="Border">
+                                    <Setter Property="CornerRadius" Value="8"/>
+                                </Style>
+                            </Button.Resources>
+                        </Button>
+                        <TextBlock x:Name="ParseProgress" Text="" Foreground="#22C55E"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" FontSize="13"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 日志区 -->
+            <Border CornerRadius="12" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                    Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <StackPanel Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="日志" FontSize="14" FontWeight="SemiBold" Foreground="#6B7280"/>
+                            <Button Content="清空" Width="60" Height="26" Margin="12,0,0,0"
+                                    Background="#E5E7EB" Foreground="#374151" BorderThickness="0"
+                                    FontSize="12" Cursor="Hand" Click="ClearLogBtn_Click"
+                                    VerticalAlignment="Center">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="6"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+                    </StackPanel>
+                    <controls:LogView x:Name="LogViewControl" Logs="{Binding Logs, ElementName=Root}" MinHeight="200"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,48 @@
+<UserControl x:Class="JiraWinTool.Views.DBConfigView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24" MaxWidth="680">
+
+            <!-- 当前路径 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="当前路径" Style="{StaticResource CardTitle}"/>
+                    <TextBox x:Name="CurrentPathText" FontSize="12" Foreground="#888888" IsReadOnly="True"
+                             BorderThickness="0" Background="Transparent" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- 自定义路径 -->
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="自定义路径" Style="{StaticResource CardTitle}"/>
+
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="CustomPathBox" Height="28" VerticalContentAlignment="Center"
+                                 ToolTip="数据库文件路径" TextChanged="CustomPathBox_TextChanged"/>
+                        <Button Content="选择..." Grid.Column="1" Width="70" Height="28" Margin="8,0,0,0"
+                                Click="SelectFolder_Click"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="ApplyOnlyButton" Content="应用（仅切换）" Height="30" Padding="12,0"
+                                Click="ApplyOnly_Click"/>
+                        <Button x:Name="MigrateButton" Content="迁移并应用" Height="30" Padding="12,0"
+                                Margin="12,0,0,0" Click="Migrate_Click"/>
+                        <Button Content="恢复默认" Height="30" Padding="12,0" Margin="12,0,0,0"
+                                Click="RestoreDefault_Click"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="MessageText" Margin="0,10,0,0" FontSize="12" TextWrapping="Wrap"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
