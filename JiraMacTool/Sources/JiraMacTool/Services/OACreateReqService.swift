@@ -28,8 +28,8 @@ actor OACreateReqService {
     ///   - draftDeptKeyword: 拟稿部门关键字（用户手工修正后）
     ///   - fixedSystemParent: 固定字段：系统名称（父级）
     ///   - fixedSystemChild: 固定字段：系统名称（子级）
+    ///   - fixedDevVersion: 固定字段：开发版本号
     ///   - fixedDutyDept: 固定字段：责任科室
-    ///   - fixedBranchCompany: 固定字段：分公司
     ///   - fixedGroupName: 固定字段：科室小组（空时复制模板值）
     ///   - fixedIsCopyReq: 固定字段：是否复制需求
     ///   - fixedIsComplexReq: 固定字段：是否复杂需求
@@ -47,8 +47,8 @@ actor OACreateReqService {
         draftDeptKeyword: String,
         fixedSystemParent: String,
         fixedSystemChild: String,
+        fixedDevVersion: String,
         fixedDutyDept: String,
-        fixedBranchCompany: String,
         fixedGroupName: String,
         fixedIsCopyReq: String,
         fixedIsComplexReq: String,
@@ -75,16 +75,10 @@ actor OACreateReqService {
             nameToId[name] = id
         }
 
-        // 1) 校验系统名称（开发）—— 使用用户配置的固定值
+        // 1) 系统名称（开发）级联字段：获取模板结构作为基础
         let sysField = fields["customfield_10125"]
-        if let sysDict = sysField as? [String: Any] {
-            let parentValue = (sysDict["value"] as? String) ?? ""
-            let childValue = ((sysDict["child"] as? [String: Any])?["value"] as? String) ?? ""
-            if !parentValue.contains(fixedSystemParent) || !childValue.contains(fixedSystemChild) {
-                throw OACreateReqError.invalidTemplate("模板 REQ 的系统名称（开发）需要包含：\(fixedSystemParent) / \(fixedSystemChild)，当前是：\(parentValue) / \(childValue)")
-            }
-        } else {
-            throw OACreateReqError.invalidTemplate("模板 REQ 没有级联字段 customfield_10125（系统名称（开发））")
+        if sysField == nil {
+            logger("[警告] 模板中没有级联字段 customfield_10125（系统名称（开发）），将尝试按元数据构建")
         }
 
         // 2) issuetype
@@ -132,8 +126,46 @@ actor OACreateReqService {
         }
         newFields["summary"] = parsed.title.isEmpty ? "(来自 OA，无标题)" : parsed.title
 
-        // 系统名称（开发）: 直接克隆模板结构
-        newFields["customfield_10125"] = cloneCascading(sysField)
+        // 系统名称（开发）: 用用户指定的父/子级值覆盖
+        var sysResult: [String: Any] = [:]
+        let sysMetaOptions = fieldOptions["customfield_10125"]
+        if let metaOptions = sysMetaOptions, !fixedSystemParent.isEmpty {
+            // 通过元数据匹配父级 id
+            if let parentMatched = findOptionByValue(allowedValues: metaOptions, targetValue: fixedSystemParent) {
+                if let id = parentMatched["id"] as? String { sysResult["id"] = id }
+                sysResult["value"] = fixedSystemParent
+                // 匹配子级 id
+                if let children = parentMatched["children"] as? [[String: Any]], !fixedSystemChild.isEmpty {
+                    if let childMatched = findOptionByValue(allowedValues: children, targetValue: fixedSystemChild) {
+                        var c: [String: Any] = [:]
+                        if let id = childMatched["id"] as? String { c["id"] = id }
+                        c["value"] = fixedSystemChild
+                        sysResult["child"] = c
+                    } else {
+                        sysResult["child"] = ["value": fixedSystemChild]
+                    }
+                }
+                logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (id 匹配)")
+            } else {
+                // 父级未匹配到元数据，仅设置文本值
+                sysResult["value"] = fixedSystemParent
+                if !fixedSystemChild.isEmpty { sysResult["child"] = ["value": fixedSystemChild] }
+                logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (仅文本值)")
+            }
+        } else {
+            // 无元数据，回退到克隆模板 + 覆盖文本值
+            if let sysDict = sysField as? [String: Any] {
+                sysResult = (cloneCascading(sysDict) as? [String: Any]) ?? [:]
+            }
+            sysResult["value"] = fixedSystemParent
+            if !fixedSystemChild.isEmpty {
+                var c = (sysResult["child"] as? [String: Any]) ?? [:]
+                c["value"] = fixedSystemChild
+                sysResult["child"] = c
+            }
+            logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (回退模板结构)")
+        }
+        newFields["customfield_10125"] = sysResult
 
         // 价值描述 (customfield_12105) = 申请内容
         if !parsed.content.isEmpty {
@@ -164,6 +196,20 @@ actor OACreateReqService {
             logger: logger
         )
 
+        // a-2) 开发版本号
+        if !fixedDevVersion.isEmpty {
+            applyFieldByName(
+                newFields: &newFields,
+                templateFields: fields,
+                nameToId: nameToId,
+                candidateNames: ["开发版本号", "版本号", "开发版本"],
+                stringValue: fixedDevVersion,
+                fieldOptions: fieldOptions,
+                fieldSchemaTypes: fieldSchemaTypes,
+                logger: logger
+            )
+        }
+
         // b) 责任科室
         applyFieldByName(
             newFields: &newFields,
@@ -176,13 +222,13 @@ actor OACreateReqService {
             logger: logger
         )
 
-        // b-2) 分公司
+        // b-2) 分公司：使用解析结果中的值
         applyFieldByName(
             newFields: &newFields,
             templateFields: fields,
             nameToId: nameToId,
             candidateNames: ["分公司", "分支机构", "所属分公司"],
-            stringValue: fixedBranchCompany,
+            stringValue: parsed.branchCompany,
             fieldOptions: fieldOptions,
             fieldSchemaTypes: fieldSchemaTypes,
             logger: logger
@@ -584,18 +630,28 @@ actor OACreateReqService {
     }
 
     /// 在 allowedValues 中按 value 文本查找匹配的选项
+    /// 匹配优先级：精确匹配 > 忽略大小写/空格 > 包含匹配
     private func findOptionByValue(allowedValues: [[String: Any]], targetValue: String) -> [String: Any]? {
-        // 精确匹配
+        // 1. 精确匹配
         if let exact = allowedValues.first(where: { ($0["value"] as? String) == targetValue }) {
             return exact
         }
-        // 忽略大小写和首尾空格
+        // 2. 忽略大小写和首尾空格
         let trimmed = targetValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if let fuzzy = allowedValues.first(where: {
             ($0["value"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 .caseInsensitiveCompare(trimmed) == .orderedSame
         }) {
             return fuzzy
+        }
+        // 3. 包含匹配（选项值包含用户输入，或用户输入包含选项值）
+        if let contains = allowedValues.first(where: {
+            guard let optVal = ($0["value"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+            return optVal.caseInsensitiveCompare(trimmed) == .orderedSame
+                || optVal.contains(trimmed)
+                || trimmed.contains(optVal)
+        }) {
+            return contains
         }
         return nil
     }

@@ -63,6 +63,9 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty ParseDraftDeptKeywordProperty =
         DependencyProperty.Register(nameof(ParseDraftDeptKeyword), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
 
+    public static readonly DependencyProperty ParseBranchCompanyProperty =
+        DependencyProperty.Register(nameof(ParseBranchCompany), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
+
     public static readonly DependencyProperty ParseApplyNoProperty =
         DependencyProperty.Register(nameof(ParseApplyNo), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
 
@@ -82,13 +85,21 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         DependencyProperty.Register(nameof(FixedSystemChild), typeof(string), typeof(OACreateReqView),
             new PropertyMetadata("新一代非车险承保核心系统", (d, _) => ((OACreateReqView)d).SaveFixedField("oa_fixed_system_child", ((OACreateReqView)d).FixedSystemChild)));
 
+    // 单选项状态
+    public static readonly DependencyProperty IsSystemChild1CheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChild1Checked), typeof(bool), typeof(OACreateReqView), new PropertyMetadata(true));
+    public static readonly DependencyProperty IsSystemChild2CheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChild2Checked), typeof(bool), typeof(OACreateReqView), new PropertyMetadata(false));
+    public static readonly DependencyProperty IsSystemChildCustomCheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChildCustomChecked), typeof(bool), typeof(OACreateReqView), new PropertyMetadata(false));
+
+    public static readonly DependencyProperty FixedDevVersionProperty =
+        DependencyProperty.Register(nameof(FixedDevVersion), typeof(string), typeof(OACreateReqView),
+            new PropertyMetadata("", (d, _) => ((OACreateReqView)d).SaveFixedField("oa_fixed_dev_version", ((OACreateReqView)d).FixedDevVersion)));
+
     public static readonly DependencyProperty FixedDutyDeptProperty =
         DependencyProperty.Register(nameof(FixedDutyDept), typeof(string), typeof(OACreateReqView),
             new PropertyMetadata("承保开发室", (d, _) => ((OACreateReqView)d).SaveFixedField("oa_fixed_duty_dept", ((OACreateReqView)d).FixedDutyDept)));
-
-    public static readonly DependencyProperty FixedBranchCompanyProperty =
-        DependencyProperty.Register(nameof(FixedBranchCompany), typeof(string), typeof(OACreateReqView),
-            new PropertyMetadata("总公司", (d, _) => ((OACreateReqView)d).SaveFixedField("oa_fixed_branch_company", ((OACreateReqView)d).FixedBranchCompany)));
 
     public static readonly DependencyProperty FixedGroupNameProperty =
         DependencyProperty.Register(nameof(FixedGroupName), typeof(string), typeof(OACreateReqView),
@@ -127,13 +138,17 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     public string ParseDrafter { get => (string)GetValue(ParseDrafterProperty); set => SetValue(ParseDrafterProperty, value); }
     public string ParseDraftDeptOriginal { get => (string)GetValue(ParseDraftDeptOriginalProperty); set => SetValue(ParseDraftDeptOriginalProperty, value); }
     public string ParseDraftDeptKeyword { get => (string)GetValue(ParseDraftDeptKeywordProperty); set => SetValue(ParseDraftDeptKeywordProperty, value); }
+    public string ParseBranchCompany { get => (string)GetValue(ParseBranchCompanyProperty); set => SetValue(ParseBranchCompanyProperty, value); }
     public string ParseApplyNo { get => (string)GetValue(ParseApplyNoProperty); set => SetValue(ParseApplyNoProperty, value); }
     public string ParseRemText { get => (string)GetValue(ParseRemTextProperty); set => SetValue(ParseRemTextProperty, value); }
     public string ParseContent { get => (string)GetValue(ParseContentProperty); set => SetValue(ParseContentProperty, value); }
     public string FixedSystemParent { get => (string)GetValue(FixedSystemParentProperty); set => SetValue(FixedSystemParentProperty, value); }
     public string FixedSystemChild { get => (string)GetValue(FixedSystemChildProperty); set => SetValue(FixedSystemChildProperty, value); }
+    public bool IsSystemChild1Checked { get => (bool)GetValue(IsSystemChild1CheckedProperty); set => SetValue(IsSystemChild1CheckedProperty, value); }
+    public bool IsSystemChild2Checked { get => (bool)GetValue(IsSystemChild2CheckedProperty); set => SetValue(IsSystemChild2CheckedProperty, value); }
+    public bool IsSystemChildCustomChecked { get => (bool)GetValue(IsSystemChildCustomCheckedProperty); set => SetValue(IsSystemChildCustomCheckedProperty, value); }
+    public string FixedDevVersion { get => (string)GetValue(FixedDevVersionProperty); set => SetValue(FixedDevVersionProperty, value); }
     public string FixedDutyDept { get => (string)GetValue(FixedDutyDeptProperty); set => SetValue(FixedDutyDeptProperty, value); }
-    public string FixedBranchCompany { get => (string)GetValue(FixedBranchCompanyProperty); set => SetValue(FixedBranchCompanyProperty, value); }
     public string FixedGroupName { get => (string)GetValue(FixedGroupNameProperty); set => SetValue(FixedGroupNameProperty, value); }
     public string FixedIsCopyReq { get => (string)GetValue(FixedIsCopyReqProperty); set => SetValue(FixedIsCopyReqProperty, value); }
     public string FixedIsComplexReq { get => (string)GetValue(FixedIsComplexReqProperty); set => SetValue(FixedIsComplexReqProperty, value); }
@@ -163,17 +178,67 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         // 恢复已保存的固定字段
         LoadFixedField("oa_fixed_system_parent", v => FixedSystemParent = v);
         LoadFixedField("oa_fixed_system_child", v => FixedSystemChild = v);
+        LoadFixedField("oa_fixed_dev_version", v => FixedDevVersion = v);
         LoadFixedField("oa_fixed_duty_dept", v => FixedDutyDept = v);
-        LoadFixedField("oa_fixed_branch_company", v => FixedBranchCompany = v);
         LoadFixedField("oa_fixed_is_copy_req", v => FixedIsCopyReq = v);
         LoadFixedField("oa_fixed_is_complex_req", v => FixedIsComplexReq = v);
         LoadFixedField("oa_fixed_req_category", v => FixedReqCategory = v);
         LoadFixedField("oa_fixed_is_pricing", v => FixedIsPricing = v);
         LoadFixedField("oa_fixed_labels", v => FixedLabels = v);
 
+        // 同步单选按钮状态与保存的系统名称子级值
+        if (FixedSystemChild == "新一代非车险承保核心系统")
+        {
+            IsSystemChild1Checked = true;
+            IsSystemChild2Checked = false;
+            IsSystemChildCustomChecked = false;
+        }
+        else if (FixedSystemChild == "产品工厂")
+        {
+            IsSystemChild1Checked = false;
+            IsSystemChild2Checked = true;
+            IsSystemChildCustomChecked = false;
+        }
+        else if (!string.IsNullOrEmpty(FixedSystemChild))
+        {
+            IsSystemChild1Checked = false;
+            IsSystemChild2Checked = false;
+            IsSystemChildCustomChecked = true;
+        }
+
         // 经办人：优先读取已保存值，否则使用当前登录账号
         var savedAssignee = AppConfig.Shared.GetCustom("oa_fixed_assignee");
         FixedAssignee = !string.IsNullOrEmpty(savedAssignee) ? savedAssignee : AppConfig.Shared.JiraUser;
+    }
+
+    // MARK: - 系统名称子级单选项变更
+
+    private void SystemChildRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;  // 初始化时不处理
+        
+        if (IsSystemChild1Checked)
+        {
+            FixedSystemChild = "新一代非车险承保核心系统";
+            FixedDevVersion = "";  // 新一代非车险承保核心系统默认为空
+            // 取消其他选项
+            if (IsSystemChild2Checked) IsSystemChild2Checked = false;
+            if (IsSystemChildCustomChecked) IsSystemChildCustomChecked = false;
+        }
+        else if (IsSystemChild2Checked)
+        {
+            FixedSystemChild = "产品工厂";
+            FixedDevVersion = "即时版本（脚本）";  // 产品工厂默认为即时版本（脚本）
+            // 取消其他选项
+            if (IsSystemChild1Checked) IsSystemChild1Checked = false;
+            if (IsSystemChildCustomChecked) IsSystemChildCustomChecked = false;
+        }
+        else if (IsSystemChildCustomChecked)
+        {
+            // 自定义模式，不自动填充，让用户手工输入
+            if (IsSystemChild1Checked) IsSystemChild1Checked = false;
+            if (IsSystemChild2Checked) IsSystemChild2Checked = false;
+        }
     }
 
     // MARK: - INotifyPropertyChanged
@@ -254,6 +319,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             ParseDrafter = parsed.Drafter;
             ParseDraftDeptOriginal = parsed.DraftDept;
             ParseDraftDeptKeyword = DeriveDeptKeyword(parsed.DraftDept);
+            ParseBranchCompany = DeriveBranchCompany(parsed.DraftDept);
             ParseApplyNo = parsed.ApplyNo;
             ParseContent = parsed.Content;
             ParseRemText = string.Join(",", parsed.RemKeys);
@@ -267,7 +333,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             }
             RefreshAttachmentList();
 
-            AppendLog($"解析完成：标题={parsed.Title}；拟稿人={parsed.Drafter}；拟稿部门={parsed.DraftDept}；申请单编号={parsed.ApplyNo}；REM={string.Join(",", parsed.RemKeys)}；附件 {parsed.Attachments.Count} 个");
+            AppendLog($"解析完成：标题={parsed.Title}；拟稿人={parsed.Drafter}；拟稿部门={parsed.DraftDept}；分公司={ParseBranchCompany}；申请单编号={parsed.ApplyNo}；REM={string.Join(",", parsed.RemKeys)}；附件 {parsed.Attachments.Count} 个");
             if (string.IsNullOrEmpty(parsed.Title) && string.IsNullOrEmpty(parsed.Drafter) && string.IsNullOrEmpty(parsed.ApplyNo))
                 AppendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。");
         }
@@ -311,6 +377,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             Title = ParseTitle,
             Drafter = ParseDrafter,
             DraftDept = ParseDraftDeptOriginal,
+            BranchCompany = ParseBranchCompany,
             Content = ParseContent,
             ApplyNo = ParseApplyNo,
             RemKeys = remKeys,
@@ -328,9 +395,8 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         {
             var key = await OACreateReqService.Shared.CreateFromOAAsync(
                 link, tpl, parsed, picked, dept,
-                FixedSystemParent, FixedSystemChild,
+                FixedSystemParent, FixedSystemChild, FixedDevVersion,
                 FixedDutyDept,
-                FixedBranchCompany,
                 FixedGroupName,
                 FixedIsCopyReq, FixedIsComplexReq, FixedReqCategory,
                 FixedIsPricing,
@@ -420,17 +486,34 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     {
         var trimmed = raw.Trim();
         if (string.IsNullOrEmpty(trimmed)) return "";
-
-        var parts = trimmed.Split(new[] { '-', '/', '|', '>', '》', ' ', '\t', '　', '\\' },
+    
+        var parts = trimmed.Split(new[] { '-', '/', '|', '>', '》', ' ', '\t', ' ', '\\' },
                 StringSplitOptions.RemoveEmptyEntries)
             .Select(p => p.Trim())
             .Where(p => !string.IsNullOrEmpty(p))
             .ToList();
-
+    
         if (parts.Count >= 2) return parts[parts.Count - 2];
         return parts.LastOrDefault() ?? trimmed;
     }
-
+    
+    /// <summary>从原始拟稿部门提取分公司（倒数第三段）</summary>
+    /// <example>华安财产保险股份有限公司/总公司/重客渠道部/车商业务室 → 总公司</example>
+    private static string DeriveBranchCompany(string raw)
+    {
+        var trimmed = raw.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return "";
+    
+        var parts = trimmed.Split(new[] { '-', '/', '|', '>', '》', ' ', '\t', ' ', '\\' },
+                StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => !string.IsNullOrEmpty(p))
+            .ToList();
+    
+        if (parts.Count >= 3) return parts[parts.Count - 3];
+        return "";  // 不足三段时返回空，让用户手工填写
+    }
+    
     private static string ExtractBaseURL(string link)
     {
         try

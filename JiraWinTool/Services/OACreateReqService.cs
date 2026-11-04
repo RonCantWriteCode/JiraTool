@@ -26,8 +26,8 @@ public class OACreateReqService
     /// <param name="draftDeptKeyword">拟稿部门关键字（用户手工修正后）</param>
     /// <param name="fixedSystemParent">固定字段：系统名称（父级）</param>
     /// <param name="fixedSystemChild">固定字段：系统名称（子级）</param>
+    /// <param name="fixedDevVersion">固定字段：开发版本号</param>
     /// <param name="fixedDutyDept">固定字段：责任科室</param>
-    /// <param name="fixedBranchCompany">固定字段：分公司</param>
     /// <param name="fixedGroupName">固定字段：科室小组（空时复制模板值）</param>
     /// <param name="fixedIsCopyReq">固定字段：是否复制需求</param>
     /// <param name="fixedIsComplexReq">固定字段：是否复杂需求</param>
@@ -44,8 +44,8 @@ public class OACreateReqService
         string draftDeptKeyword,
         string fixedSystemParent,
         string fixedSystemChild,
+        string fixedDevVersion,
         string fixedDutyDept,
-        string fixedBranchCompany,
         string fixedGroupName,
         string fixedIsCopyReq,
         string fixedIsComplexReq,
@@ -70,19 +70,11 @@ public class OACreateReqService
         foreach (var prop in names.Properties())
             nameToId[prop.Value.Value<string>() ?? ""] = prop.Name;
 
-        // 1) 校验系统名称（开发）—— 使用用户配置的固定值
+        // 1) 系统名称（开发）级联字段：获取模板结构作为基础
         var sysField = fields["customfield_10125"] as JObject;
-        if (sysField != null)
+        if (sysField == null)
         {
-            var parentValue = sysField["value"]?.Value<string>() ?? "";
-            var childValue = sysField["child"]?["value"]?.Value<string>() ?? "";
-            if (!parentValue.Contains(fixedSystemParent) || !childValue.Contains(fixedSystemChild))
-                throw new InvalidOperationException(
-                    $"模板 REQ 的系统名称（开发）需要包含：{fixedSystemParent} / {fixedSystemChild}，当前是：{parentValue} / {childValue}");
-        }
-        else
-        {
-            throw new InvalidOperationException("模板 REQ 没有级联字段 customfield_10125（系统名称（开发））");
+            logger("[警告] 模板中没有级联字段 customfield_10125（系统名称（开发）），将尝试按元数据构建");
         }
 
         // 2) issuetype
@@ -129,9 +121,61 @@ public class OACreateReqService
             ["issuetype"] = issueTypeId != null
                 ? new JObject { ["id"] = issueTypeId }
                 : new JObject { ["name"] = "系统需求" },
-            ["summary"] = string.IsNullOrEmpty(parsed.Title) ? "(来自 OA，无标题)" : parsed.Title,
-            ["customfield_10125"] = CloneCascading(sysField)
+            ["summary"] = string.IsNullOrEmpty(parsed.Title) ? "(来自 OA，无标题)" : parsed.Title
         };
+
+        // 系统名称（开发）: 用用户指定的父/子级值覆盖
+        var sysResult = new JObject();
+        if (fieldOptions.TryGetValue("customfield_10125", out var sysMetaOptions) && !string.IsNullOrEmpty(fixedSystemParent))
+        {
+            // 通过元数据匹配父级 id
+            var parentMatched = FindOptionByValue(sysMetaOptions, fixedSystemParent);
+            if (parentMatched != null)
+            {
+                if (parentMatched["id"] != null) sysResult["id"] = parentMatched["id"];
+                sysResult["value"] = fixedSystemParent;
+                // 匹配子级 id
+                if (!string.IsNullOrEmpty(fixedSystemChild) && parentMatched["children"] is JArray children)
+                {
+                    var childMatched = FindOptionByValue(children, fixedSystemChild);
+                    if (childMatched != null)
+                    {
+                        var c = new JObject();
+                        if (childMatched["id"] != null) c["id"] = childMatched["id"];
+                        c["value"] = fixedSystemChild;
+                        sysResult["child"] = c;
+                    }
+                    else
+                    {
+                        sysResult["child"] = new JObject { ["value"] = fixedSystemChild };
+                    }
+                }
+                logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (id 匹配)");
+            }
+            else
+            {
+                // 父级未匹配到元数据，仅设置文本值
+                sysResult["value"] = fixedSystemParent;
+                if (!string.IsNullOrEmpty(fixedSystemChild))
+                    sysResult["child"] = new JObject { ["value"] = fixedSystemChild };
+                logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (仅文本值)");
+            }
+        }
+        else
+        {
+            // 无元数据，回退到克隆模板 + 覆盖文本值
+            if (sysField != null)
+                sysResult = (JObject)CloneCascading(sysField);
+            sysResult["value"] = fixedSystemParent;
+            if (!string.IsNullOrEmpty(fixedSystemChild))
+            {
+                var c = sysResult["child"] as JObject ?? new JObject();
+                c["value"] = fixedSystemChild;
+                sysResult["child"] = c;
+            }
+            logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (回退模板结构)");
+        }
+        newFields["customfield_10125"] = sysResult;
 
         // 价值描述 (customfield_12105) = 申请内容
         if (!string.IsNullOrEmpty(parsed.Content))
@@ -153,15 +197,23 @@ public class OACreateReqService
             new[] { "需求提交部门", "提交部门", "需求部门", "申请部门" },
             draftDeptKeyword, fieldOptions, fieldSchemaTypes, logger);
 
+        // a-2) 开发版本号
+        if (!string.IsNullOrEmpty(fixedDevVersion))
+        {
+            ApplyFieldByName(newFields, fields, nameToId,
+                new[] { "开发版本号", "版本号", "开发版本" },
+                fixedDevVersion, fieldOptions, fieldSchemaTypes, logger);
+        }
+
         // b) 责任科室
         ApplyFieldByName(newFields, fields, nameToId,
             new[] { "责任科室", "开发科室", "主责科室" },
             fixedDutyDept, fieldOptions, fieldSchemaTypes, logger);
 
-        // b-2) 分公司
+        // b-2) 分公司：使用解析结果中的值
         ApplyFieldByName(newFields, fields, nameToId,
             new[] { "分公司", "分支机构", "所属分公司" },
-            fixedBranchCompany, fieldOptions, fieldSchemaTypes, logger);
+            parsed.BranchCompany, fieldOptions, fieldSchemaTypes, logger);
 
         // c) 科室小组: 用户录入为空时直接复制模板 REQ 的值，否则使用用户输入
         var groupNameFieldId = ResolveCustomFieldId(nameToId, new[] { "科室小组", "开发小组", "责任小组" }, logger);
@@ -538,19 +590,35 @@ public class OACreateReqService
     }
 
     /// <summary>在 allowedValues 中按 value 文本查找匹配的选项</summary>
+    /// <remarks>匹配优先级：精确匹配 > 忽略大小写/空格 > 包含匹配</remarks>
     private static JObject? FindOptionByValue(JArray allowedValues, string targetValue)
     {
+        // 1. 精确匹配
         foreach (var opt in allowedValues)
         {
             if (opt is JObject o && o["value"]?.Value<string>() == targetValue)
                 return o;
         }
-        // 尝试忽略大小写和首尾空格
+        // 2. 尝试忽略大小写和首尾空格
         var trimmed = targetValue.Trim();
         foreach (var opt in allowedValues)
         {
             if (opt is JObject o && o["value"]?.Value<string>()?.Trim().Equals(trimmed, StringComparison.OrdinalIgnoreCase) == true)
                 return o;
+        }
+        // 3. 包含匹配（选项值包含用户输入，或用户输入包含选项值）
+        foreach (var opt in allowedValues)
+        {
+            if (opt is JObject o)
+            {
+                var optVal = o["value"]?.Value<string>()?.Trim();
+                if (!string.IsNullOrEmpty(optVal) && !string.IsNullOrEmpty(trimmed))
+                {
+                    if (optVal.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                        trimmed.Contains(optVal, StringComparison.OrdinalIgnoreCase))
+                        return o;
+                }
+            }
         }
         return null;
     }

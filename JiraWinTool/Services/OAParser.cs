@@ -25,6 +25,7 @@ public static class OAParser
             Title = title,
             Drafter = drafter,
             DraftDept = draftDept,
+            BranchCompany = "",  // 由视图层从 DraftDept 派生
             Content = content,
             ApplyNo = applyNo,
             RemKeys = remKeys,
@@ -59,7 +60,7 @@ public static class OAParser
     }
 
     // MARK: - DraftDept
-
+    
     private static string ExtractDraftDept(string html)
     {
         // 策略 1：从 addressName span 提取
@@ -69,7 +70,7 @@ public static class OAParser
             var raw = StripTags(m.Groups[1].Value).Trim();
             if (!string.IsNullOrEmpty(raw) && raw.Length > 3 && !raw.StartsWith("1")) return raw;
         }
-
+    
         // 策略 2：从 xform_address 的 hidden input 提取
         var inputMatches = Regex.Matches(html, @"<input[^>]*name=""extendDataFormInfo\.value\([^)]*\.name\)""[^>]*>", RegexOptions.IgnoreCase);
         foreach (Match im in inputMatches)

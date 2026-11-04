@@ -6,8 +6,10 @@ struct OACreateReqView: View {
     @AppStorage("oa_template_req_key") private var templateReqKey: String = "REQ-23963"
     @AppStorage("oa_fixed_system_parent") private var fixedSystemParent: String = "核心条线"
     @AppStorage("oa_fixed_system_child") private var fixedSystemChild: String = "新一代非车险承保核心系统"
+    @State private var systemChildOption: String = "新一代非车险承保核心系统"
+    private let systemChildOptions = ["新一代非车险承保核心系统", "产品工厂", "自定义"]
+    @AppStorage("oa_fixed_dev_version") private var fixedDevVersion: String = ""
     @AppStorage("oa_fixed_duty_dept") private var fixedDutyDept: String = "承保开发室"
-    @AppStorage("oa_fixed_branch_company") private var fixedBranchCompany: String = "总公司"
     @AppStorage("oa_fixed_group_name") private var fixedGroupName: String = ""
     @AppStorage("oa_fixed_is_copy_req") private var fixedIsCopyReq: String = "否"
     @AppStorage("oa_fixed_is_complex_req") private var fixedIsComplexReq: String = "否"
@@ -21,6 +23,7 @@ struct OACreateReqView: View {
     @State private var drafter: String = ""
     @State private var draftDeptOriginal: String = ""
     @State private var draftDeptKeyword: String = ""
+    @State private var branchCompany: String = ""
     @State private var applyNo: String = ""
     @State private var content: String = ""
     @State private var remText: String = ""
@@ -81,7 +84,8 @@ struct OACreateReqView: View {
                     LabeledField(label: "标题", placeholder: "OA 标题", text: $title)
                     LabeledField(label: "拟稿人", placeholder: "OA 拟稿人", text: $drafter)
                     LabeledField(label: "拟稿部门(原)", placeholder: "OA 拟稿部门原文", text: $draftDeptOriginal)
-                    LabeledField(label: "提交部门关键字", placeholder: "如『重客渠道部』，将写入『需求提交部门』", text: $draftDeptKeyword)
+                    LabeledField(label: "提交部门", placeholder: "如『重客渠道部』，需与 Jira 选项完全一致", text: $draftDeptKeyword)
+                    LabeledField(label: "分公司", placeholder: "如『总公司』，将从 OA 自动解析", text: $branchCompany)
                     LabeledField(label: "申请单编号", placeholder: "作为签报号", text: $applyNo)
                     LabeledField(label: "REM 号", placeholder: "多个用英文逗号分隔，如 REM-123,REM-456", text: $remText)
 
@@ -134,9 +138,41 @@ struct OACreateReqView: View {
                 CardSection(title: "将写入的固定字段（可修改，自动保存）", icon: "pencil", iconColor: .gray) {
                     Group {
                         LabeledField(label: "系统名称（父级）", placeholder: "如『核心条线』", text: $fixedSystemParent, labelWidth: 120)
-                        LabeledField(label: "系统名称（子级）", placeholder: "如『新一代非车险承保核心系统』", text: $fixedSystemChild, labelWidth: 120)
+                        HStack(spacing: 8) {
+                            Text("系统名称（子级）")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .frame(width: 120, alignment: .trailing)
+                            HStack(spacing: 12) {
+                                ForEach(systemChildOptions, id: \.self) { option in
+                                    Button(action: {
+                                        systemChildOption = option
+                                        if option != "自定义" {
+                                            fixedSystemChild = option
+                                        }
+                                        // 根据选项设置开发版本号默认值
+                                        if option == "产品工厂" {
+                                            fixedDevVersion = "即时版本（脚本）"
+                                        } else if option == "新一代非车险承保核心系统" {
+                                            fixedDevVersion = ""
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: systemChildOption == option ? "largecircle.fill.circle" : "circle")
+                                                .foregroundColor(systemChildOption == option ? .accentColor : .secondary)
+                                            Text(option)
+                                                .font(.system(size: 12))
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            TextField("或手工输入", text: $fixedSystemChild)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 180)
+                        }
+                        LabeledField(label: "开发版本号", placeholder: "如『即时版本（脚本）』，允许修改", text: $fixedDevVersion, labelWidth: 120)
                         LabeledField(label: "责任科室", placeholder: "如『承保开发室』", text: $fixedDutyDept, labelWidth: 120)
-                        LabeledField(label: "分公司", placeholder: "如『总公司』", text: $fixedBranchCompany, labelWidth: 120)
                         LabeledField(label: "科室小组", placeholder: "留空则复制模板值", text: $fixedGroupName, labelWidth: 120)
                         LabeledField(label: "是否复制需求", placeholder: "如『否』", text: $fixedIsCopyReq, labelWidth: 120)
                         LabeledField(label: "是否复杂需求", placeholder: "如『否』", text: $fixedIsComplexReq, labelWidth: 120)
@@ -201,6 +237,20 @@ struct OACreateReqView: View {
             .padding(20)
         }
         .frame(minWidth: 620, minHeight: 500)
+        .onAppear {
+            // 同步单选按钮状态与保存的系统名称子级值
+            if systemChildOptions.contains(fixedSystemChild) {
+                systemChildOption = fixedSystemChild
+            } else if !fixedSystemChild.isEmpty {
+                systemChildOption = "自定义"
+            }
+            // 根据单选按钮同步开发版本号
+            if systemChildOption == "产品工厂" && fixedDevVersion.isEmpty {
+                fixedDevVersion = "即时版本（脚本）"
+            } else if systemChildOption == "新一代非车险承保核心系统" {
+                // 保持用户之前保存的值，不强制清空
+            }
+        }
     }
 
     // MARK: - Actions
@@ -234,6 +284,7 @@ struct OACreateReqView: View {
                                     title: finalParsed.title,
                                     drafter: finalParsed.drafter,
                                     draftDept: finalParsed.draftDept,
+                                    branchCompany: finalParsed.branchCompany,
                                     content: finalParsed.content,
                                     applyNo: finalParsed.applyNo,
                                     remKeys: extraREM,
@@ -263,6 +314,7 @@ struct OACreateReqView: View {
                 drafter = finalParsed.drafter
                 draftDeptOriginal = finalParsed.draftDept
                 draftDeptKeyword = deriveDeptKeyword(finalParsed.draftDept)
+                branchCompany = deriveBranchCompany(finalParsed.draftDept)
                 applyNo = finalParsed.applyNo
                 content = finalParsed.content
                 remText = finalParsed.remKeys.joined(separator: ",")
@@ -271,7 +323,7 @@ struct OACreateReqView: View {
                     let isSelected = !att.isTemplateAttachment
                     return (att.id, isSelected)
                 })
-                appendLog("解析完成：标题=\(finalParsed.title)；拟稿人=\(finalParsed.drafter)；拟稿部门=\(finalParsed.draftDept)；申请单编号=\(finalParsed.applyNo)；REM=\(finalParsed.remKeys.joined(separator: ","))；附件 \(finalParsed.attachments.count) 个")
+                appendLog("解析完成：标题=\(finalParsed.title)；拟稿人=\(finalParsed.drafter)；拟稿部门=\(finalParsed.draftDept)；分公司=\(branchCompany)；申请单编号=\(finalParsed.applyNo)；REM=\(finalParsed.remKeys.joined(separator: ","))；附件 \(finalParsed.attachments.count) 个")
                 if finalParsed.title.isEmpty && finalParsed.drafter.isEmpty && finalParsed.applyNo.isEmpty {
                     appendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。")
                 }
@@ -333,6 +385,7 @@ struct OACreateReqView: View {
             title: title,
             drafter: drafter,
             draftDept: draftDeptOriginal,
+            branchCompany: branchCompany,
             content: content,
             applyNo: applyNo,
             remKeys: remText
@@ -355,8 +408,8 @@ struct OACreateReqView: View {
                     draftDeptKeyword: dept,
                     fixedSystemParent: fixedSystemParent,
                     fixedSystemChild: fixedSystemChild,
+                    fixedDevVersion: fixedDevVersion,
                     fixedDutyDept: fixedDutyDept,
-                    fixedBranchCompany: fixedBranchCompany,
                     fixedGroupName: fixedGroupName,
                     fixedIsCopyReq: fixedIsCopyReq,
                     fixedIsComplexReq: fixedIsComplexReq,
@@ -414,6 +467,21 @@ struct OACreateReqView: View {
         if parts.count >= 2 { return parts[parts.count - 2] }
         // 只有一段就返回那一段
         return parts.last ?? trimmed
+    }
+
+    /// 从原始拟稿部门提取分公司（倒数第三段）
+    /// 例：华安财产保险股份有限公司/总公司/重客渠道部/车商业务室 → 总公司（倒数第三段）
+    private func deriveBranchCompany(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        // 拆分常见分隔符（与 deriveDeptKeyword 保持一致）
+        let parts = trimmed.components(separatedBy: CharacterSet(charactersIn: "-/|>》> \t \u{3000}\\"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // 取倒数第三段（如 华安财产保险/总公司/重客渠道部/车商业务室 → 总公司）
+        if parts.count >= 3 { return parts[parts.count - 3] }
+        // 不足三段时返回空，让用户手工填写
+        return ""
     }
 
     private func extractBaseURL(_ link: String) -> String {

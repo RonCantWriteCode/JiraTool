@@ -7,8 +7,10 @@ struct EmailCreateReqView: View {
     @AppStorage("email_template_req_key") private var templateReqKey: String = "REQ-23963"
     @AppStorage("email_fixed_system_parent") private var fixedSystemParent: String = "核心条线"
     @AppStorage("email_fixed_system_child") private var fixedSystemChild: String = "产品工厂"
+    @State private var systemChildOption: String = "产品工厂"
+    private let systemChildOptions = ["新一代非车险承保核心系统", "产品工厂", "自定义"]
+    @AppStorage("email_fixed_dev_version") private var fixedDevVersion: String = "即时版本（脚本）"
     @AppStorage("email_fixed_duty_dept") private var fixedDutyDept: String = "承保开发室"
-    @AppStorage("email_fixed_branch_company") private var fixedBranchCompany: String = "总公司"
     @AppStorage("email_fixed_group_name") private var fixedGroupName: String = ""
     @AppStorage("email_fixed_is_copy_req") private var fixedIsCopyReq: String = "否"
     @AppStorage("email_fixed_is_complex_req") private var fixedIsComplexReq: String = "否"
@@ -21,6 +23,8 @@ struct EmailCreateReqView: View {
     @State private var title: String = ""
     @State private var sender: String = ""
     @State private var senderEmail: String = ""
+    @State private var draftDept: String = ""
+    @State private var branchCompany: String = ""
     @State private var content: String = ""
     @State private var attachments: [EmailAttachmentInfo] = []
     @State private var attachmentSelection: [UUID: Bool] = [:]
@@ -87,6 +91,8 @@ struct EmailCreateReqView: View {
                     LabeledField(label: "标题", placeholder: "邮件标题（Subject）", text: $title)
                     LabeledField(label: "发件人", placeholder: "邮件发件人（From）", text: $sender)
                     LabeledField(label: "发件人邮箱", placeholder: "发件人邮箱地址", text: $senderEmail)
+                    LabeledField(label: "提交部门", placeholder: "如『重客渠道部』，需与 Jira 选项完全一致", text: $draftDept)
+                    LabeledField(label: "分公司", placeholder: "如『总公司』，邮件中无法自动解析", text: $branchCompany)
 
                     HStack(alignment: .top, spacing: 8) {
                         Text("邮件正文")
@@ -135,9 +141,41 @@ struct EmailCreateReqView: View {
                 CardSection(title: "将写入的固定字段（可修改，自动保存）", icon: "pencil", iconColor: .gray) {
                     Group {
                         LabeledField(label: "系统名称（父级）", placeholder: "如『核心条线』", text: $fixedSystemParent, labelWidth: 120)
-                        LabeledField(label: "系统名称（子级）", placeholder: "如『新一代非车险承保核心系统』", text: $fixedSystemChild, labelWidth: 120)
+                        HStack(spacing: 8) {
+                            Text("系统名称（子级）")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .frame(width: 120, alignment: .trailing)
+                            HStack(spacing: 12) {
+                                ForEach(systemChildOptions, id: \.self) { option in
+                                    Button(action: {
+                                        systemChildOption = option
+                                        if option != "自定义" {
+                                            fixedSystemChild = option
+                                        }
+                                        // 根据选项设置开发版本号默认值
+                                        if option == "产品工厂" {
+                                            fixedDevVersion = "即时版本（脚本）"
+                                        } else if option == "新一代非车险承保核心系统" {
+                                            fixedDevVersion = ""
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: systemChildOption == option ? "largecircle.fill.circle" : "circle")
+                                                .foregroundColor(systemChildOption == option ? .accentColor : .secondary)
+                                            Text(option)
+                                                .font(.system(size: 12))
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            TextField("或手工输入", text: $fixedSystemChild)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 180)
+                        }
+                        LabeledField(label: "开发版本号", placeholder: "如『即时版本（脚本）』，允许修改", text: $fixedDevVersion, labelWidth: 120)
                         LabeledField(label: "责任科室", placeholder: "如『承保开发室』", text: $fixedDutyDept, labelWidth: 120)
-                        LabeledField(label: "分公司", placeholder: "如『总公司』", text: $fixedBranchCompany, labelWidth: 120)
                         LabeledField(label: "科室小组", placeholder: "留空则复制模板值", text: $fixedGroupName, labelWidth: 120)
                         LabeledField(label: "是否复制需求", placeholder: "如『否』", text: $fixedIsCopyReq, labelWidth: 120)
                         LabeledField(label: "是否复杂需求", placeholder: "如『否』", text: $fixedIsComplexReq, labelWidth: 120)
@@ -190,6 +228,16 @@ struct EmailCreateReqView: View {
         }
         .frame(minWidth: 620, minHeight: 500)
         .onAppear {
+            // 同步单选按钮状态与保存的系统名称子级值
+            if systemChildOptions.contains(fixedSystemChild) {
+                systemChildOption = fixedSystemChild
+            } else if !fixedSystemChild.isEmpty {
+                systemChildOption = "自定义"
+            }
+            // 根据单选按钮同步开发版本号
+            if systemChildOption == "产品工厂" && fixedDevVersion.isEmpty {
+                fixedDevVersion = "即时版本（脚本）"
+            }
             // 初始化经办人默认值
             if fixedAssignee.isEmpty {
                 let oaAssignee = UserDefaults.standard.string(forKey: "oa_fixed_assignee") ?? ""
@@ -270,6 +318,7 @@ struct EmailCreateReqView: View {
             title: title,
             drafter: sender,
             draftDept: "",
+            branchCompany: branchCompany,
             content: content,
             applyNo: "",
             remKeys: [],
@@ -290,11 +339,11 @@ struct EmailCreateReqView: View {
                     templateReqKey: tpl,
                     parsed: parsed,
                     pickedAttachments: [], // 邮件附件不走 OA 下载流程
-                    draftDeptKeyword: "",
+                    draftDeptKeyword: draftDept,
                     fixedSystemParent: fixedSystemParent,
                     fixedSystemChild: fixedSystemChild,
+                    fixedDevVersion: fixedDevVersion,
                     fixedDutyDept: fixedDutyDept,
-                    fixedBranchCompany: fixedBranchCompany,
                     fixedGroupName: fixedGroupName,
                     fixedIsCopyReq: fixedIsCopyReq,
                     fixedIsComplexReq: fixedIsComplexReq,

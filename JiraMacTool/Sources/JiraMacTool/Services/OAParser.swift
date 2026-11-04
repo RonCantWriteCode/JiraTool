@@ -17,6 +17,7 @@ struct OAParseResult {
     var title: String
     var drafter: String          // 拟稿人
     var draftDept: String        // 原始拟稿部门全名
+    var branchCompany: String    // 分公司
     var content: String          // 申请内容（纯文本）
     var applyNo: String          // 申请单编号
     var remKeys: [String]        // 自动检测到的 REM
@@ -51,6 +52,7 @@ enum OAParser {
             title: title,
             drafter: drafter,
             draftDept: draftDept,
+            branchCompany: "",  // 由视图层从 draftDept 派生
             content: content,
             applyNo: applyNo,
             remKeys: remKeys,

@@ -74,6 +74,14 @@
                         Placeholder="发件人邮箱地址"
                         Text="{Binding ParseSenderEmail, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="100"/>
+                    <controls:LabeledField Label="提交部门"
+                        Placeholder="如『重客渠道部』，需与 Jira 选项完全一致"
+                        Text="{Binding ParseDraftDept, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="分公司"
+                        Placeholder="如『总公司』，邮件中无法自动解析"
+                        Text="{Binding ParseBranchCompany, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="100"/>
@@ -121,17 +129,35 @@
                         Placeholder="如『线条线』"
                         Text="{Binding FixedSystemParent, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="120"/>
-                    <controls:LabeledField Label="系统名称（子级）"
-                        Placeholder="如『非车-投保交易系统』"
-                        Text="{Binding FixedSystemChild, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="系统名称（子级）" Style="{StaticResource FormLabel}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0">
+                            <RadioButton Content="新一代非车险承保核心系统" GroupName="SystemChild" 
+                                IsChecked="{Binding IsSystemChild1Checked, ElementName=Root}" 
+                                Checked="SystemChildRadio_Checked" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <RadioButton Content="产品工厂" GroupName="SystemChild" 
+                                IsChecked="{Binding IsSystemChild2Checked, ElementName=Root}" 
+                                Checked="SystemChildRadio_Checked" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <RadioButton Content="自定义" GroupName="SystemChild" 
+                                IsChecked="{Binding IsSystemChildCustomChecked, ElementName=Root}" 
+                                Checked="SystemChildRadio_Checked" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBox Grid.Column="2" 
+                            Text="{Binding FixedSystemChild, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                            VerticalAlignment="Center"/>
+                    </Grid>
+                    <controls:LabeledField Label="开发版本号"
+                        Placeholder="如『即时版本（脚本）』，允许修改"
+                        Text="{Binding FixedDevVersion, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="120"/>
                     <controls:LabeledField Label="责任科室"
                         Placeholder="如『承保开发室』"
                         Text="{Binding FixedDutyDept, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
-                        LabelWidth="120"/>
-                    <controls:LabeledField Label="分公司"
-                        Placeholder="如『总公司』"
-                        Text="{Binding FixedBranchCompany, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="120"/>
                     <controls:LabeledField Label="科室小组"
                         Placeholder="留空则复制模板值"

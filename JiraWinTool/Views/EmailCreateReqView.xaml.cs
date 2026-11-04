@@ -66,6 +66,12 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty ParseSenderEmailProperty =
         DependencyProperty.Register(nameof(ParseSenderEmail), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
+    public static readonly DependencyProperty ParseDraftDeptProperty =
+        DependencyProperty.Register(nameof(ParseDraftDept), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
+
+    public static readonly DependencyProperty ParseBranchCompanyProperty =
+        DependencyProperty.Register(nameof(ParseBranchCompany), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
+
     public static readonly DependencyProperty ParseContentProperty =
         DependencyProperty.Register(nameof(ParseContent), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
@@ -79,13 +85,21 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
         DependencyProperty.Register(nameof(FixedSystemChild), typeof(string), typeof(EmailCreateReqView),
             new PropertyMetadata("产品工厂", (d, _) => ((EmailCreateReqView)d).SaveFixedField("email_fixed_system_child", ((EmailCreateReqView)d).FixedSystemChild)));
 
+    // 单选项状态（邮件默认选中“产品工厂”）
+    public static readonly DependencyProperty IsSystemChild1CheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChild1Checked), typeof(bool), typeof(EmailCreateReqView), new PropertyMetadata(false));
+    public static readonly DependencyProperty IsSystemChild2CheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChild2Checked), typeof(bool), typeof(EmailCreateReqView), new PropertyMetadata(true));
+    public static readonly DependencyProperty IsSystemChildCustomCheckedProperty =
+        DependencyProperty.Register(nameof(IsSystemChildCustomChecked), typeof(bool), typeof(EmailCreateReqView), new PropertyMetadata(false));
+
+    public static readonly DependencyProperty FixedDevVersionProperty =
+        DependencyProperty.Register(nameof(FixedDevVersion), typeof(string), typeof(EmailCreateReqView),
+            new PropertyMetadata("即时版本（脚本）", (d, _) => ((EmailCreateReqView)d).SaveFixedField("email_fixed_dev_version", ((EmailCreateReqView)d).FixedDevVersion)));
+
     public static readonly DependencyProperty FixedDutyDeptProperty =
         DependencyProperty.Register(nameof(FixedDutyDept), typeof(string), typeof(EmailCreateReqView),
             new PropertyMetadata("承保开发室", (d, _) => ((EmailCreateReqView)d).SaveFixedField("email_fixed_duty_dept", ((EmailCreateReqView)d).FixedDutyDept)));
-
-    public static readonly DependencyProperty FixedBranchCompanyProperty =
-        DependencyProperty.Register(nameof(FixedBranchCompany), typeof(string), typeof(EmailCreateReqView),
-            new PropertyMetadata("总公司", (d, _) => ((EmailCreateReqView)d).SaveFixedField("email_fixed_branch_company", ((EmailCreateReqView)d).FixedBranchCompany)));
 
     public static readonly DependencyProperty FixedGroupNameProperty =
         DependencyProperty.Register(nameof(FixedGroupName), typeof(string), typeof(EmailCreateReqView),
@@ -123,11 +137,16 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public string ParseTitle { get => (string)GetValue(ParseTitleProperty); set => SetValue(ParseTitleProperty, value); }
     public string ParseSender { get => (string)GetValue(ParseSenderProperty); set => SetValue(ParseSenderProperty, value); }
     public string ParseSenderEmail { get => (string)GetValue(ParseSenderEmailProperty); set => SetValue(ParseSenderEmailProperty, value); }
+    public string ParseDraftDept { get => (string)GetValue(ParseDraftDeptProperty); set => SetValue(ParseDraftDeptProperty, value); }
+    public string ParseBranchCompany { get => (string)GetValue(ParseBranchCompanyProperty); set => SetValue(ParseBranchCompanyProperty, value); }
     public string ParseContent { get => (string)GetValue(ParseContentProperty); set => SetValue(ParseContentProperty, value); }
     public string FixedSystemParent { get => (string)GetValue(FixedSystemParentProperty); set => SetValue(FixedSystemParentProperty, value); }
     public string FixedSystemChild { get => (string)GetValue(FixedSystemChildProperty); set => SetValue(FixedSystemChildProperty, value); }
+    public bool IsSystemChild1Checked { get => (bool)GetValue(IsSystemChild1CheckedProperty); set => SetValue(IsSystemChild1CheckedProperty, value); }
+    public bool IsSystemChild2Checked { get => (bool)GetValue(IsSystemChild2CheckedProperty); set => SetValue(IsSystemChild2CheckedProperty, value); }
+    public bool IsSystemChildCustomChecked { get => (bool)GetValue(IsSystemChildCustomCheckedProperty); set => SetValue(IsSystemChildCustomCheckedProperty, value); }
+    public string FixedDevVersion { get => (string)GetValue(FixedDevVersionProperty); set => SetValue(FixedDevVersionProperty, value); }
     public string FixedDutyDept { get => (string)GetValue(FixedDutyDeptProperty); set => SetValue(FixedDutyDeptProperty, value); }
-    public string FixedBranchCompany { get => (string)GetValue(FixedBranchCompanyProperty); set => SetValue(FixedBranchCompanyProperty, value); }
     public string FixedGroupName { get => (string)GetValue(FixedGroupNameProperty); set => SetValue(FixedGroupNameProperty, value); }
     public string FixedIsCopyReq { get => (string)GetValue(FixedIsCopyReqProperty); set => SetValue(FixedIsCopyReqProperty, value); }
     public string FixedIsComplexReq { get => (string)GetValue(FixedIsComplexReqProperty); set => SetValue(FixedIsComplexReqProperty, value); }
@@ -162,19 +181,69 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
         // 恢复已保存的固定字段
         LoadFixedField("email_fixed_system_parent", v => FixedSystemParent = v);
         LoadFixedField("email_fixed_system_child", v => FixedSystemChild = v);
+        LoadFixedField("email_fixed_dev_version", v => FixedDevVersion = v);
         LoadFixedField("email_fixed_duty_dept", v => FixedDutyDept = v);
-        LoadFixedField("email_fixed_branch_company", v => FixedBranchCompany = v);
         LoadFixedField("email_fixed_is_copy_req", v => FixedIsCopyReq = v);
         LoadFixedField("email_fixed_is_complex_req", v => FixedIsComplexReq = v);
         LoadFixedField("email_fixed_req_category", v => FixedReqCategory = v);
         LoadFixedField("email_fixed_is_pricing", v => FixedIsPricing = v);
         LoadFixedField("email_fixed_labels", v => FixedLabels = v);
 
+        // 同步单选按钮状态与保存的系统名称子级值
+        if (FixedSystemChild == "新一代非车险承保核心系统")
+        {
+            IsSystemChild1Checked = true;
+            IsSystemChild2Checked = false;
+            IsSystemChildCustomChecked = false;
+        }
+        else if (FixedSystemChild == "产品工厂")
+        {
+            IsSystemChild1Checked = false;
+            IsSystemChild2Checked = true;
+            IsSystemChildCustomChecked = false;
+        }
+        else if (!string.IsNullOrEmpty(FixedSystemChild))
+        {
+            IsSystemChild1Checked = false;
+            IsSystemChild2Checked = false;
+            IsSystemChildCustomChecked = true;
+        }
+
         // 经办人：优先读取已保存值，否则使用当前登录账号
         var savedAssignee = AppConfig.Shared.GetCustom("email_fixed_assignee");
         if (string.IsNullOrEmpty(savedAssignee))
             savedAssignee = AppConfig.Shared.GetCustom("oa_fixed_assignee");
         FixedAssignee = !string.IsNullOrEmpty(savedAssignee) ? savedAssignee : AppConfig.Shared.JiraUser;
+    }
+
+    // MARK: - 系统名称子级单选项变更
+
+    private void SystemChildRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;  // 初始化时不处理
+        
+        if (IsSystemChild1Checked)
+        {
+            FixedSystemChild = "新一代非车险承保核心系统";
+            FixedDevVersion = "";  // 新一代非车险承保核心系统默认为空
+            // 取消其他选项
+            if (IsSystemChild2Checked) IsSystemChild2Checked = false;
+            if (IsSystemChildCustomChecked) IsSystemChildCustomChecked = false;
+        }
+        else if (IsSystemChild2Checked)
+        {
+            FixedSystemChild = "产品工厂";
+            FixedDevVersion = "即时版本（脚本）";  // 产品工厂默认为即时版本（脚本）
+            // 取消其他选项
+            if (IsSystemChild1Checked) IsSystemChild1Checked = false;
+            if (IsSystemChildCustomChecked) IsSystemChildCustomChecked = false;
+        }
+        else if (IsSystemChildCustomChecked)
+        {
+            // 自定义模式，不自动填充，让用户手工输入
+            if (IsSystemChild1Checked) IsSystemChild1Checked = false;
+            if (IsSystemChild2Checked) IsSystemChild2Checked = false;
+        }
     }
 
     // MARK: - INotifyPropertyChanged
@@ -269,6 +338,7 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             Title = ParseTitle,
             Drafter = ParseSender,
             DraftDept = "",
+            BranchCompany = ParseBranchCompany,
             Content = ParseContent,
             ApplyNo = "",
             RemKeys = new List<string>(),
@@ -287,10 +357,9 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
         try
         {
             var key = await OACreateReqService.Shared.CreateFromOAAsync(
-                oaLink, tpl, parsed, new List<OAAttachment>(), "",
-                FixedSystemParent, FixedSystemChild,
+                oaLink, tpl, parsed, new List<OAAttachment>(), ParseDraftDept,
+                FixedSystemParent, FixedSystemChild, FixedDevVersion,
                 FixedDutyDept,
-                FixedBranchCompany,
                 FixedGroupName,
                 FixedIsCopyReq, FixedIsComplexReq, FixedReqCategory,
                 FixedIsPricing,
