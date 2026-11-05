@@ -284,6 +284,7 @@ struct OACreateReqView: View {
                                     title: finalParsed.title,
                                     drafter: finalParsed.drafter,
                                     draftDept: finalParsed.draftDept,
+                                    leadDept: finalParsed.leadDept,
                                     branchCompany: finalParsed.branchCompany,
                                     content: finalParsed.content,
                                     applyNo: finalParsed.applyNo,
@@ -313,7 +314,12 @@ struct OACreateReqView: View {
                 title = finalParsed.title
                 drafter = finalParsed.drafter
                 draftDeptOriginal = finalParsed.draftDept
-                draftDeptKeyword = deriveDeptKeyword(finalParsed.draftDept)
+                // 提交部门：优先使用总公司牵头部门，如果没有则从拟稿部门派生
+                if !finalParsed.leadDept.isEmpty {
+                    draftDeptKeyword = deriveDeptKeyword(finalParsed.leadDept)
+                } else {
+                    draftDeptKeyword = deriveDeptKeyword(finalParsed.draftDept)
+                }
                 branchCompany = deriveBranchCompany(finalParsed.draftDept)
                 applyNo = finalParsed.applyNo
                 content = finalParsed.content
@@ -323,7 +329,7 @@ struct OACreateReqView: View {
                     let isSelected = !att.isTemplateAttachment
                     return (att.id, isSelected)
                 })
-                appendLog("解析完成：标题=\(finalParsed.title)；拟稿人=\(finalParsed.drafter)；拟稿部门=\(finalParsed.draftDept)；分公司=\(branchCompany)；申请单编号=\(finalParsed.applyNo)；REM=\(finalParsed.remKeys.joined(separator: ","))；附件 \(finalParsed.attachments.count) 个")
+                appendLog("解析完成：提交部门=\(draftDeptKeyword)；分公司=\(branchCompany)；REM=\(finalParsed.remKeys.joined(separator: ","))；附件 \(finalParsed.attachments.count) 个")
                 if finalParsed.title.isEmpty && finalParsed.drafter.isEmpty && finalParsed.applyNo.isEmpty {
                     appendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。")
                 }
@@ -385,6 +391,7 @@ struct OACreateReqView: View {
             title: title,
             drafter: drafter,
             draftDept: draftDeptOriginal,
+            leadDept: "",  // 创建时使用空值，实际提交部门在 dept 参数中传递
             branchCompany: branchCompany,
             content: content,
             applyNo: applyNo,

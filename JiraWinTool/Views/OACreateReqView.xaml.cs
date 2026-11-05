@@ -318,7 +318,15 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             ParseTitle = parsed.Title;
             ParseDrafter = parsed.Drafter;
             ParseDraftDeptOriginal = parsed.DraftDept;
-            ParseDraftDeptKeyword = DeriveDeptKeyword(parsed.DraftDept);
+            // 提交部门：优先使用总公司牵头部门，如果没有则从拟稿部门派生
+            if (!string.IsNullOrEmpty(parsed.LeadDept))
+            {
+                ParseDraftDeptKeyword = DeriveDeptKeyword(parsed.LeadDept);
+            }
+            else
+            {
+                ParseDraftDeptKeyword = DeriveDeptKeyword(parsed.DraftDept);
+            }
             ParseBranchCompany = DeriveBranchCompany(parsed.DraftDept);
             ParseApplyNo = parsed.ApplyNo;
             ParseContent = parsed.Content;
@@ -333,7 +341,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             }
             RefreshAttachmentList();
 
-            AppendLog($"解析完成：标题={parsed.Title}；拟稿人={parsed.Drafter}；拟稿部门={parsed.DraftDept}；分公司={ParseBranchCompany}；申请单编号={parsed.ApplyNo}；REM={string.Join(",", parsed.RemKeys)}；附件 {parsed.Attachments.Count} 个");
+            AppendLog($"解析完成：提交部门={ParseDraftDeptKeyword}；分公司={ParseBranchCompany}；REM={string.Join(",", parsed.RemKeys)}；附件 {parsed.Attachments.Count} 个");
             if (string.IsNullOrEmpty(parsed.Title) && string.IsNullOrEmpty(parsed.Drafter) && string.IsNullOrEmpty(parsed.ApplyNo))
                 AppendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。");
         }

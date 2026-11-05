@@ -318,6 +318,7 @@ struct EmailCreateReqView: View {
             title: title,
             drafter: sender,
             draftDept: "",
+            leadDept: "",
             branchCompany: branchCompany,
             content: content,
             applyNo: "",

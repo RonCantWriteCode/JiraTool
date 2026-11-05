@@ -37,6 +37,7 @@ public class OAParseResult
     public string Title { get; set; } = "";
     public string Drafter { get; set; } = "";
     public string DraftDept { get; set; } = "";
+    public string LeadDept { get; set; } = "";  // 总公司牵头部门
     public string BranchCompany { get; set; } = "";
     public string Content { get; set; } = "";
     public string ApplyNo { get; set; } = "";

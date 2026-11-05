@@ -13,6 +13,7 @@ public static class OAParser
         var title = ExtractTitle(html);
         var drafter = ExtractDrafter(html);
         var draftDept = ExtractDraftDept(html);
+        var leadDept = ExtractLeadDept(html);
         var applyNo = ExtractApplyNo(html);
         var content = ExtractContent(html);
         var remKeys = ExtractREMFromAuditNotes(html);
@@ -25,6 +26,7 @@ public static class OAParser
             Title = title,
             Drafter = drafter,
             DraftDept = draftDept,
+            LeadDept = leadDept,
             BranchCompany = "",  // 由视图层从 DraftDept 派生
             Content = content,
             ApplyNo = applyNo,
@@ -87,30 +89,22 @@ public static class OAParser
         return "";
     }
 
+    // MARK: - LeadDept (总公司牵头部门)
+
+    /// <summary>提取总公司牵头部门字段</summary>
+    private static string ExtractLeadDept(string html)
+    {
+        // 尝试从 td_normal_title 字段中提取"总公司牵头部门"或"牵头部门"
+        var result = ExtractFieldByTd(html, new[] { "总公司牵头部门", "牵头部门" });
+        return result ?? "";
+    }
+
     // MARK: - ApplyNo
 
     private static string ExtractApplyNo(string html)
     {
-        // 诊断：检查 HTML 中是否包含关键字
-        foreach (var key in new[] { "申请单编号", "单据编号", "文档编号", "流水号", "编号" })
-        {
-            var count = 0;
-            var idx = 0;
-            while ((idx = html.IndexOf(key, idx, StringComparison.Ordinal)) >= 0) { count++; idx += key.Length; }
-            if (count > 0) Log.Debug($"[OAParser.ExtractApplyNo] HTML 中包含 '{key}' {count} 次");
-        }
-        // 诊断：检查 td_normal_title 数量
-        var tdCount = Regex.Matches(html, "td_normal_title", RegexOptions.IgnoreCase).Count;
-        Log.Debug($"[OAParser.ExtractApplyNo] HTML 中 td_normal_title 出现 {tdCount} 次");
-
         var result = ExtractFieldByTd(html, new[] { "申请单编号", "单据编号", "文档编号", "流水号", "编号" });
-        if (!string.IsNullOrEmpty(result))
-        {
-            Log.Debug($"[OAParser.ExtractApplyNo] ✅ 提取成功: {result}");
-            return result;
-        }
-        Log.Debug("[OAParser.ExtractApplyNo] ❌ 提取失败，返回空");
-        return "";
+        return result ?? "";
     }
 
     // MARK: - Content
@@ -170,29 +164,16 @@ public static class OAParser
         foreach (var key in keys)
         {
             var m = Regex.Match(html, $@"<td[^>]*class=""[^""]*td_normal_title[^""]*""[^>]*>.*?{Regex.Escape(key)}.*?</td>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-            if (!m.Success)
-            {
-                Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' 未匹配到 td_normal_title");
-                continue;
-            }
-            Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' 匹配成功，match.Index={m.Index}, match.Length={m.Length}");
+            if (!m.Success) continue;
 
             var endPos = m.Index + m.Length;
-            // 兰凌 EKP 的 td 标签属性较多，整个 <td>...</td> 可能超过 500 字符
             var remainLen = Math.Min(2000, html.Length - endPos);
-            Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' endPos={endPos}, html.Length={html.Length}, remainLen={remainLen}");
             var remain = html[endPos..(endPos + remainLen)];
             var tm = Regex.Match(remain, @"<td[^>]*>([\s\S]*?)</td>", RegexOptions.IgnoreCase);
-            if (!tm.Success)
-            {
-                Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' 后续 2000 字符内未找到 <td>");
-                continue;
-            }
+            if (!tm.Success) continue;
 
             var raw = tm.Groups[1].Value;
-            Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' 原始值(前200字): {raw[..Math.Min(200, raw.Length)]}");
             var val = CleanupFieldTdValue(raw);
-            Log.Debug($"[OAParser.ExtractFieldByTd] '{key}' 清理后: '{val}'");
             if (!string.IsNullOrEmpty(val)) return val;
         }
         return "";

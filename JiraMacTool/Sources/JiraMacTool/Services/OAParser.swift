@@ -17,6 +17,7 @@ struct OAParseResult {
     var title: String
     var drafter: String          // 拟稿人
     var draftDept: String        // 原始拟稿部门全名
+    var leadDept: String         // 总公司牵头部门
     var branchCompany: String    // 分公司
     var content: String          // 申请内容（纯文本）
     var applyNo: String          // 申请单编号
@@ -40,6 +41,7 @@ enum OAParser {
         let title = extractTitle(html: html)
         let drafter = extractDrafter(html: html)
         let draftDept = extractDraftDept(html: html, lowerHTML: lowerHTML)
+        let leadDept = extractLeadDept(html: html)
         let applyNo = extractApplyNo(html: html)
         let content = extractContent(html: html, lowerHTML: lowerHTML)
         var remKeys = extractREMFromAuditNotes(html: html, lowerHTML: lowerHTML)
@@ -52,6 +54,7 @@ enum OAParser {
             title: title,
             drafter: drafter,
             draftDept: draftDept,
+            leadDept: leadDept,
             branchCompany: "",  // 由视图层从 draftDept 派生
             content: content,
             applyNo: applyNo,
@@ -132,28 +135,18 @@ enum OAParser {
         return ""
     }
 
+    // MARK: - 总公司牵头部门
+
+    /// 提取总公司牵头部门字段
+    private static func extractLeadDept(html: String) -> String {
+        // 尝试从 td_normal_title 字段中提取"总公司牵头部门"或"牵头部门"
+        return extractFieldByTd(html: html, keys: ["总公司牵头部门", "牵头部门"]) ?? ""
+    }
+
     // MARK: - 申请单编号
 
     private static func extractApplyNo(html: String) -> String {
-        // 诊断：检查 HTML 中是否包含关键字
-        for key in ["申请单编号", "单据编号", "文档编号", "流水号", "编号"] {
-            let count = html.components(separatedBy: key).count - 1
-            if count > 0 {
-                debugLog("[OAParser.extractApplyNo] HTML 中包含 '\(key)' \(count) 次")
-            }
-        }
-        // 诊断：检查 td_normal_title 数量
-        if let tdRegex = try? NSRegularExpression(pattern: #"(?is)td_normal_title"#) {
-            let ns = html as NSString
-            let tdCount = tdRegex.numberOfMatches(in: html, options: [], range: NSRange(location: 0, length: ns.length))
-            debugLog("[OAParser.extractApplyNo] HTML 中 td_normal_title 出现 \(tdCount) 次")
-        }
-        if let v = extractFieldByTd(html: html, keys: ["申请单编号", "单据编号", "文档编号", "流水号", "编号"]), !v.isEmpty {
-            debugLog("[OAParser.extractApplyNo] ✅ 提取成功: \(v)")
-            return v
-        }
-        debugLog("[OAParser.extractApplyNo] ❌ 提取失败，返回空")
-        return ""
+        return extractFieldByTd(html: html, keys: ["申请单编号", "单据编号", "文档编号", "流水号", "编号"]) ?? ""
     }
 
     // MARK: - 核心字段抽取：<td class="td_normal_title">KEY</td><td>VALUE</td>
@@ -194,17 +187,11 @@ enum OAParser {
             }
 
             guard foundEnd > 0 else { continue }
-            debugLog("[OAParser.extractFieldByTd] '\(key)' 找到标题 td")
 
             // Step 2: 从 foundEnd 起找下一个 <td>...</td>
-            guard let valRange = findNextTdValue(html: ns, lowerHTML: lh, from: foundEnd) else {
-                debugLog("[OAParser.extractFieldByTd] '\(key)' 后续未找到值 <td>")
-                continue
-            }
+            guard let valRange = findNextTdValue(html: ns, lowerHTML: lh, from: foundEnd) else { continue }
             let raw = ns.substring(with: valRange)
-            debugLog("[OAParser.extractFieldByTd] '\(key)' 原始值(前200字): \(raw.prefix(200))")
             let cleaned = cleanupFieldTdValue(raw)
-            debugLog("[OAParser.extractFieldByTd] '\(key)' 清理后: '\(cleaned)'")
             if !cleaned.isEmpty { return cleaned }
         }
         return nil
