@@ -317,6 +317,8 @@ actor PublishService {
                     }
                 }
 
+                // publishKey 是本次新建的 PUBLISH，不可能已关联该 REQ，
+                // 故不走 linkIssuesIfAbsent（否则每个 REQ 多一次关联查询）
                 try await jira.linkIssues(from: publishKey, to: reqIssue.key)
             } catch {
                 log += "⚠️ REQ \(reqIssue.key) 后续操作失败: \(error.localizedDescription)\n"

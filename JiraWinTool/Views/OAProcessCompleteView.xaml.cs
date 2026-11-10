@@ -215,60 +215,19 @@ public partial class OAProcessCompleteView : UserControl, INotifyPropertyChanged
             // 2. 调用 OAPDFExportService（返回的 fileName 为 OA 页面标题，如 “关于xxx的请示需求.pdf”）
             var (pdfData, pdfFileName) = await OAPDFExportService.Shared.ExportPDFAsync(printURL, baseURL);
             if (string.IsNullOrEmpty(pdfFileName))
-                pdfFileName = $"{REQNumber}.pdf";
+                pdfFileName = $"{req}.pdf";
             else if (!pdfFileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                 pdfFileName += ".pdf";
             AppendLog($"[成功] PDF 下载完成 ({pdfData.Length} bytes)，文件名: {pdfFileName}");
 
-            // 3. 上传到 Jira（使用 OA 页面标题作为文件名）
-            await JiraService.Shared.UploadAttachmentAsync(REQNumber, pdfFileName, pdfData, "application/pdf");
-            AppendLog($"[成功] PDF 已上传到 Jira: {REQNumber}/{pdfFileName}");
+            // 3. 上传到 Jira（使用 OA 页面标题作为文件名；同名同大小的附件已存在则跳过）
+            var uploaded = await JiraService.Shared.UploadAttachmentIfAbsentAsync(req, pdfFileName, pdfData, "application/pdf");
+            AppendLog(uploaded
+                ? $"[成功] PDF 已上传到 Jira: {req}/{pdfFileName}"
+                : $"[跳过] {req} 上已有同名同大小的 PDF 附件: {pdfFileName}");
 
             // 4. 如果关联REQ不为空，将关联REQ链接到主REQ（已关联则跳过）
-            var related = RelatedREQ?.Trim() ?? "";
-            if (!string.IsNullOrEmpty(related))
-            {
-                // 获取主REQ已有的issuelinks
-                var existingLinkedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                try
-                {
-                    var raw = await JiraService.Shared.GetIssueRawAsync(REQNumber);
-                    if (raw["fields"] is JObject fields && fields["issuelinks"] is JArray links)
-                    {
-                        foreach (var issueLink in links)
-                        {
-                            var outwardKey = issueLink["outwardIssue"]?["key"]?.ToString();
-                            if (!string.IsNullOrEmpty(outwardKey)) existingLinkedKeys.Add(outwardKey);
-                            var inwardKey = issueLink["inwardIssue"]?["key"]?.ToString();
-                            if (!string.IsNullOrEmpty(inwardKey)) existingLinkedKeys.Add(inwardKey);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"[调试] 获取主REQ关联信息失败: {ex.Message}，将尝试全部关联");
-                }
-                var relatedReqs = related.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(s => s.Trim())
-                    .Where(s => !string.IsNullOrEmpty(s));
-                foreach (var relatedReq in relatedReqs)
-                {
-                    if (existingLinkedKeys.Contains(relatedReq))
-                    {
-                        AppendLog($"[跳过] {relatedReq} 已与 {REQNumber} 关联");
-                        continue;
-                    }
-                    try
-                    {
-                        await JiraService.Shared.LinkIssuesAsync(REQNumber, relatedReq, "关联");
-                        AppendLog($"[成功] 已关联 REQ: {relatedReq} → {REQNumber}");
-                    }
-                    catch (Exception linkEx)
-                    {
-                        AppendLog($"[警告] 关联 {relatedReq} 失败: {linkEx.Message}");
-                    }
-                }
-            }
+            await LinkRelatedREQsAsync(req, RelatedREQ ?? "");
         }
         catch (Exception ex)
         {
@@ -278,6 +237,54 @@ public partial class OAProcessCompleteView : UserControl, INotifyPropertyChanged
         {
             _isDownloadingPDF = false;
             UpdateDownloadButtonState();
+        }
+    }
+
+    /// <summary>
+    /// 把「关联REQ」逐个关联到主 REQ：
+    /// 先去掉重复项与主 REQ 自身，再由 JiraService 双侧校验已有关联，
+    /// 已关联的跳过；关联关系读不到时不创建，避免重复关联。
+    /// </summary>
+    private async Task LinkRelatedREQsAsync(string mainReq, string relatedRaw)
+    {
+        if (string.IsNullOrWhiteSpace(relatedRaw)) return;
+
+        var candidates = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in relatedRaw.Split(','))
+        {
+            var key = part.Trim().ToUpperInvariant();
+            if (key.Length == 0 || key == mainReq.ToUpperInvariant()) continue;
+            if (seen.Add(key)) candidates.Add(key);
+        }
+        if (candidates.Count == 0)
+        {
+            AppendLog("[跳过] 关联REQ 全部与主 REQ 相同，无需关联");
+            return;
+        }
+
+        foreach (var relatedReq in candidates)
+        {
+            try
+            {
+                var outcome = await JiraService.Shared.LinkIssuesIfAbsentAsync(mainReq, relatedReq, "关联");
+                switch (outcome)
+                {
+                    case JiraService.LinkOutcome.Created:
+                        AppendLog($"[成功] 已关联 REQ: {relatedReq} → {mainReq}");
+                        break;
+                    case JiraService.LinkOutcome.AlreadyLinked:
+                        AppendLog($"[跳过] {relatedReq} 已与 {mainReq} 关联");
+                        break;
+                    case JiraService.LinkOutcome.Unverified:
+                        AppendLog($"[警告] 无法确认 {relatedReq} 的已有关联，本次未关联，请在 Jira 手动检查");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[警告] 关联 {relatedReq} 失败: {ex.Message}");
+            }
         }
     }
 

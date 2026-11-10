@@ -359,6 +359,8 @@ public class PublishService
                         specialLabels.Add(label);
                 }
 
+                // publishKey 是本次新建的 PUBLISH，不可能已关联该 REQ，
+                // 故不走 LinkIssuesIfAbsentAsync（否则每个 REQ 多一次关联查询）
                 await _jira.LinkIssuesAsync(publishKey, reqIssue.Key);
             }
             catch (Exception ex)

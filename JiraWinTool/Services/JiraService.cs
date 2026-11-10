@@ -624,6 +624,91 @@ public class JiraService
         finally { _gate.Release(); }
     }
 
+    /// <summary>关联操作结果</summary>
+    public enum LinkOutcome
+    {
+        /// <summary>新建了关联</summary>
+        Created,
+        /// <summary>已经存在关联，未重复创建</summary>
+        AlreadyLinked,
+        /// <summary>两侧都读不到已有关联，为安全起见未创建</summary>
+        Unverified
+    }
+
+    /// <summary>读取 issue 已关联的其他 issue key（统一大写）；读取失败返回 null</summary>
+    public async Task<HashSet<string>?> GetLinkedIssueKeysAsync(string key)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            var data = await MakeRequestAsync($"/rest/api/2/issue/{key}");
+            var json = ParseJObjectOrThrow(data);
+            if (json["fields"] is not JObject fields)
+                throw JiraException.DecodingError;
+
+            // issuelinks 字段缺失时无法确认已有关联，按读取失败处理（避免重复关联）
+            if (fields["issuelinks"] is not JArray links)
+                throw JiraException.DecodingError;
+
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var link in links.OfType<JObject>())
+            {
+                var outward = link["outwardIssue"]?["key"]?.Value<string>();
+                if (!string.IsNullOrEmpty(outward)) keys.Add(outward);
+                var inward = link["inwardIssue"]?["key"]?.Value<string>();
+                if (!string.IsNullOrEmpty(inward)) keys.Add(inward);
+            }
+            return keys;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[JiraService] GetLinkedIssueKeysAsync({key}) 失败: {ex.Message}");
+            return null;
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>
+    /// 关联两个 issue，已关联则跳过：先查 from 侧，查不到再查 to 侧；
+    /// 两侧都读不到时返回 Unverified 且不创建，避免重复关联。
+    /// 创建关联本身失败时抛出异常。
+    /// </summary>
+    public async Task<LinkOutcome> LinkIssuesIfAbsentAsync(string from, string to, string linkType = "关联")
+    {
+        var fromKeys = await GetLinkedIssueKeysAsync(from);
+        if (fromKeys != null)
+        {
+            if (fromKeys.Contains(to)) return LinkOutcome.AlreadyLinked;
+        }
+        else
+        {
+            var toKeys = await GetLinkedIssueKeysAsync(to);
+            if (toKeys == null) return LinkOutcome.Unverified;
+            if (toKeys.Contains(from)) return LinkOutcome.AlreadyLinked;
+        }
+
+        try
+        {
+            await LinkIssuesAsync(from, to, linkType);
+            return LinkOutcome.Created;
+        }
+        catch (JiraException ex) when (IsAlreadyExistsError(ex.Message))
+        {
+            // 部分实例在关联已存在时返回错误，按已关联处理
+            Log.Debug($"[JiraService] LinkIssues 报关联已存在: {ex.Message}");
+            return LinkOutcome.AlreadyLinked;
+        }
+    }
+
+    /// <summary>判断报错文本是否为「关联已存在」</summary>
+    private static bool IsAlreadyExistsError(string msg)
+    {
+        if (string.IsNullOrEmpty(msg)) return false;
+        return msg.IndexOf("already exist", StringComparison.OrdinalIgnoreCase) >= 0
+            || msg.IndexOf("duplicate", StringComparison.OrdinalIgnoreCase) >= 0
+            || msg.Contains("已存在");
+    }
+
     // MARK: - Versions
 
     public async Task<List<JiraVersion>> GetProjectVersionsAsync(string project = "REQ")
@@ -702,6 +787,35 @@ public class JiraService
     {
         var issue = await GetIssueAsync(issueKey);
         return issue.Fields["attachment"] as JArray ?? new JArray();
+    }
+
+    /// <summary>
+    /// issue 上是否已有同名（忽略大小写）且同大小的附件。
+    /// 读取失败或字段缺失时返回 false（照常上传，不拦住正常流程）。
+    /// </summary>
+    public async Task<bool> HasSameAttachmentAsync(string issueKey, string fileName, long size)
+    {
+        try
+        {
+            var arr = await GetAttachmentsAsync(issueKey);
+            return arr.OfType<JObject>().Any(a =>
+                string.Equals(a["filename"]?.Value<string>(), fileName, StringComparison.OrdinalIgnoreCase)
+                && a["size"]?.Value<long>() == size);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"[JiraService] HasSameAttachmentAsync({issueKey}) 失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>上传附件；同名同大小的附件已存在则跳过。true=已上传，false=已存在跳过</summary>
+    public async Task<bool> UploadAttachmentIfAbsentAsync(string issueKey, string fileName, byte[] fileData, string mimeType = "application/octet-stream")
+    {
+        if (await HasSameAttachmentAsync(issueKey, fileName, fileData.LongLength))
+            return false;
+        await UploadAttachmentAsync(issueKey, fileName, fileData, mimeType);
+        return true;
     }
 
     /// <summary>下载附件内容（传入 attachment.content 绝对 URL）。401 自动重登重试</summary>

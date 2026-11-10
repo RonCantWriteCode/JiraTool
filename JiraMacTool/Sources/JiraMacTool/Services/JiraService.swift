@@ -493,6 +493,69 @@ actor JiraService {
         _ = try await makeRequest(path: path, method: "POST", body: data)
     }
 
+    /// 关联操作结果
+    enum LinkOutcome {
+        /// 新建了关联
+        case created
+        /// 已经存在关联，未重复创建
+        case alreadyLinked
+        /// 两侧都读不到已有关联，为安全起见未创建
+        case unverified
+    }
+
+    /// 读取 issue 已关联的其他 issue key（统一大写）；读取失败返回 nil
+    func getLinkedIssueKeys(_ key: String) async -> Set<String>? {
+        do {
+            let raw = try await getIssueRaw(key)
+            guard let fields = raw["fields"] as? [String: Any] else { return nil }
+            // issuelinks 字段缺失时无法确认已有关联，按读取失败处理（避免重复关联）
+            guard let links = fields["issuelinks"] as? [[String: Any]] else { return nil }
+            var keys = Set<String>()
+            for link in links {
+                if let outward = link["outwardIssue"] as? [String: Any], let k = outward["key"] as? String {
+                    keys.insert(k.uppercased())
+                }
+                if let inward = link["inwardIssue"] as? [String: Any], let k = inward["key"] as? String {
+                    keys.insert(k.uppercased())
+                }
+            }
+            return keys
+        } catch {
+            debugLog("[JiraService] getLinkedIssueKeys(\(key)) 失败: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 关联两个 issue，已关联则跳过：先查 from 侧，查不到再查 to 侧；
+    /// 两侧都读不到时返回 .unverified 且不创建，避免重复关联。
+    /// 创建关联本身失败时抛出异常。
+    func linkIssuesIfAbsent(from: String, to: String, linkType: String = "关联") async throws -> LinkOutcome {
+        if let fromKeys = await getLinkedIssueKeys(from) {
+            if fromKeys.contains(to.uppercased()) { return .alreadyLinked }
+        } else {
+            guard let toKeys = await getLinkedIssueKeys(to) else { return .unverified }
+            if toKeys.contains(from.uppercased()) { return .alreadyLinked }
+        }
+
+        do {
+            try await linkIssues(from: from, to: to, linkType: linkType)
+            return .created
+        } catch let error as JiraError {
+            // 部分实例在关联已存在时返回错误，按已关联处理
+            if case .httpError(_, let msg) = error, Self.isAlreadyExistsError(msg) {
+                debugLog("[JiraService] linkIssues 报关联已存在: \(msg.prefix(200))")
+                return .alreadyLinked
+            }
+            throw error
+        }
+    }
+
+    /// 判断报错文本是否为「关联已存在」
+    private static func isAlreadyExistsError(_ msg: String) -> Bool {
+        let lower = msg.lowercased()
+        return lower.contains("already exist") || lower.contains("duplicate") || msg.contains("已存在")
+    }
+
     // MARK: - Versions
 
     func getProjectVersions(project: String = "REQ") async throws -> [JiraVersion] {
@@ -558,6 +621,34 @@ actor JiraService {
     func getAttachments(issueKey: String) async throws -> [[String: Any]] {
         let issue = try await getIssue(issueKey)
         return issue.fields["attachment"] as? [[String: Any]] ?? []
+    }
+
+    /// issue 上是否已有同名（忽略大小写）且同大小的附件。
+    /// 读取失败或字段缺失时返回 false（照常上传，不拦住正常流程）。
+    func hasSameAttachment(issueKey: String, fileName: String, size: Int) async -> Bool {
+        do {
+            let list = try await getAttachments(issueKey: issueKey)
+            let target = fileName.lowercased()
+            return list.contains { att in
+                let name = (att["filename"] as? String ?? "").lowercased()
+                let attSize = att["size"] as? Int ?? -1
+                return name == target && attSize == size
+            }
+        } catch {
+            debugLog("[JiraService] hasSameAttachment(\(issueKey)) 失败: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 上传附件；同名同大小的附件已存在则跳过。返回 true=已上传，false=已存在跳过
+    @discardableResult
+    func uploadAttachmentIfAbsent(issueKey: String, fileName: String, fileData: Data,
+                                  mimeType: String = "application/octet-stream") async throws -> Bool {
+        if await hasSameAttachment(issueKey: issueKey, fileName: fileName, size: fileData.count) {
+            return false
+        }
+        try await uploadAttachment(issueKey: issueKey, fileName: fileName, fileData: fileData, mimeType: mimeType)
+        return true
     }
 
     /// 下载附件内容（传入 attachment.content 绝对 URL）

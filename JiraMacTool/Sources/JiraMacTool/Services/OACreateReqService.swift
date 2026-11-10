@@ -427,13 +427,20 @@ actor OACreateReqService {
             }
         }
 
-        // 5) 关联 REM
+        // 5) 关联 REM（已关联则跳过，关联关系读不到时不创建）
         if !parsed.remKeys.isEmpty {
             logger("关联 REM \(parsed.remKeys.joined(separator: ",")) ...")
             for rem in parsed.remKeys {
                 do {
-                    try await jira.linkIssues(from: newKey, to: rem, linkType: "关联")
-                    logger("  ✓ 已关联 \(rem)")
+                    let outcome = try await jira.linkIssuesIfAbsent(from: newKey, to: rem, linkType: "关联")
+                    switch outcome {
+                    case .created:
+                        logger("  ✓ 已关联 \(rem)")
+                    case .alreadyLinked:
+                        logger("  ⏭ \(rem) 已关联，跳过")
+                    case .unverified:
+                        logger("  ⚠️ 无法确认 \(rem) 的已有关联，本次未关联，请手动检查")
+                    }
                 } catch {
                     logger("  ✗ 关联失败 \(rem): \(error.localizedDescription)")
                 }

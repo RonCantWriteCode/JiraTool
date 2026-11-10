@@ -384,7 +384,7 @@ public class OACreateReqService
             }
         }
 
-        // 5) 关联 REM
+        // 5) 关联 REM（已关联则跳过，关联关系读不到时不创建）
         if (parsed.RemKeys.Count > 0)
         {
             logger($"关联 REM {string.Join(",", parsed.RemKeys)} ...");
@@ -392,8 +392,13 @@ public class OACreateReqService
             {
                 try
                 {
-                    await _jira.LinkIssuesAsync(newKey, rem, "关联");
-                    logger($"  ✓ 已关联 {rem}");
+                    var outcome = await _jira.LinkIssuesIfAbsentAsync(newKey, rem, "关联");
+                    logger(outcome switch
+                    {
+                        JiraService.LinkOutcome.Created => $"  ✓ 已关联 {rem}",
+                        JiraService.LinkOutcome.AlreadyLinked => $"  ⏭ {rem} 已关联，跳过",
+                        _ => $"  ⚠️ 无法确认 {rem} 的已有关联，本次未关联，请手动检查"
+                    });
                 }
                 catch (Exception ex)
                 {

@@ -199,52 +199,58 @@ struct OAProcessCompleteView: View {
                 let fileName = tmpName
                 await MainActor.run { self.appendLog("[成功] PDF 下载完成 (\(pdfData.count) bytes)，文件名: \(fileName)") }
 
-                // 3. 上传到 Jira（使用 OA 页面标题作为文件名）
-                try await JiraService.shared.uploadAttachment(
+                // 3. 上传到 Jira（使用 OA 页面标题作为文件名；同名同大小的附件已存在则跳过）
+                let uploaded = try await JiraService.shared.uploadAttachmentIfAbsent(
                     issueKey: req,
                     fileName: fileName,
                     fileData: pdfData,
                     mimeType: "application/pdf"
                 )
-                await MainActor.run { self.appendLog("[成功] PDF 已上传到 Jira: \(req)/\(fileName)") }
+                await MainActor.run {
+                    self.appendLog(uploaded
+                        ? "[成功] PDF 已上传到 Jira: \(req)/\(fileName)"
+                        : "[跳过] \(req) 上已有同名同大小的 PDF 附件: \(fileName)")
+                }
 
                 // 4. 如果关联REQ不为空，将关联REQ链接到主REQ（已关联则跳过）
-                let related = self.relatedREQ.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !related.isEmpty {
-                    // 获取主REQ已有的issuelinks
-                    var existingLinkedKeys = Set<String>()
-                    do {
-                        let raw = try await JiraService.shared.getIssueRaw(req)
-                        if let fields = raw["fields"] as? [String: Any],
-                           let links = fields["issuelinks"] as? [[String: Any]] {
-                            for link in links {
-                                if let outward = link["outwardIssue"] as? [String: Any], let k = outward["key"] as? String {
-                                    existingLinkedKeys.insert(k.uppercased())
-                                }
-                                if let inward = link["inwardIssue"] as? [String: Any], let k = inward["key"] as? String {
-                                    existingLinkedKeys.insert(k.uppercased())
-                                }
-                            }
-                        }
-                    } catch {
-                        await MainActor.run { self.appendLog("[调试] 获取主REQ关联信息失败: \(error.localizedDescription)，将尝试全部关联") }
-                    }
-                    let relatedReqs = related.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-                    for relatedReq in relatedReqs {
-                        if existingLinkedKeys.contains(relatedReq.uppercased()) {
-                            await MainActor.run { self.appendLog("[跳过] \(relatedReq) 已与 \(req) 关联") }
-                            continue
-                        }
-                        do {
-                            try await JiraService.shared.linkIssues(from: req, to: relatedReq, linkType: "关联")
-                            await MainActor.run { self.appendLog("[成功] 已关联 REQ: \(relatedReq) → \(req)") }
-                        } catch {
-                            await MainActor.run { self.appendLog("[警告] 关联 \(relatedReq) 失败: \(error.localizedDescription)") }
-                        }
-                    }
-                }
+                let relatedRaw = await MainActor.run { self.relatedREQ }
+                await linkRelatedREQs(mainReq: req, relatedRaw: relatedRaw)
             } catch {
                 await MainActor.run { self.appendLog("[失败] \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    /// 把「关联REQ」逐个关联到主 REQ：
+    /// 先去掉重复项与主 REQ 自身，再由 JiraService 双侧校验已有关联，
+    /// 已关联的跳过；关联关系读不到时不创建，避免重复关联。
+    @MainActor
+    private func linkRelatedREQs(mainReq: String, relatedRaw: String) async {
+        guard !relatedRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        var candidates: [String] = []
+        var seen = Set<String>()
+        for part in relatedRaw.split(separator: ",") {
+            let key = part.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if key.isEmpty || key == mainReq.uppercased() { continue }
+            if seen.insert(key).inserted { candidates.append(key) }
+        }
+        if candidates.isEmpty {
+            appendLog("[跳过] 关联REQ 全部与主 REQ 相同，无需关联")
+            return
+        }
+        for relatedReq in candidates {
+            do {
+                let outcome = try await JiraService.shared.linkIssuesIfAbsent(from: mainReq, to: relatedReq, linkType: "关联")
+                switch outcome {
+                case .created:
+                    appendLog("[成功] 已关联 REQ: \(relatedReq) → \(mainReq)")
+                case .alreadyLinked:
+                    appendLog("[跳过] \(relatedReq) 已与 \(mainReq) 关联")
+                case .unverified:
+                    appendLog("[警告] 无法确认 \(relatedReq) 的已有关联，本次未关联，请在 Jira 手动检查")
+                }
+            } catch {
+                appendLog("[警告] 关联 \(relatedReq) 失败: \(error.localizedDescription)")
             }
         }
     }
