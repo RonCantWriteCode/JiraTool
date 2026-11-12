@@ -24,6 +24,10 @@
                         Placeholder="如 REQ-12345（用作字段参考；首次填入后自动保存）"
                         Text="{Binding TemplateReqKey, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="90"/>
+                    <controls:LabeledField Label="评估人"
+                        Placeholder="审批意见中该操作人的处理意见用于解析内/外部人力"
+                        Text="{Binding Evaluator, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                         <Button x:Name="ParseBtn" Content="解析 OA 页面" Width="140" Height="34"
                                 Background="#F97316" Foreground="White" BorderThickness="0"
@@ -74,6 +78,18 @@
                     <controls:LabeledField Label="REM 号"
                         Placeholder="多个用英文逗号分隔，如 REM-123,REM-456"
                         Text="{Binding ParseRemText, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="需求评估OA链接"
+                        Placeholder="自动解析『常规需求评估申请』关联的 OA 链接，可手工修正"
+                        Text="{Binding ParseReqEvalLink, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="内部人力(人/天)"
+                        Placeholder="从评估人处理意见解析，可手工修正"
+                        Text="{Binding ParseInnerManpower, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="外部人力(人/天)"
+                        Placeholder="从评估人处理意见解析，可手工修正"
+                        Text="{Binding ParseExternalManpower, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="100"/>
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>

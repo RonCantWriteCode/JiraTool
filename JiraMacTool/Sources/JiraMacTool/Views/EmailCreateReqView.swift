@@ -25,6 +25,9 @@ struct EmailCreateReqView: View {
     @State private var senderEmail: String = ""
     @State private var draftDept: String = ""
     @State private var branchCompany: String = ""
+    /// 内部/外部人力（人/天）：邮件无解析逻辑，仅手工填写
+    @State private var innerManpower: String = ""
+    @State private var externalManpower: String = ""
     @State private var content: String = ""
     @State private var attachments: [EmailAttachmentInfo] = []
     @State private var attachmentSelection: [UUID: Bool] = [:]
@@ -93,6 +96,8 @@ struct EmailCreateReqView: View {
                     LabeledField(label: "发件人邮箱", placeholder: "发件人邮箱地址", text: $senderEmail)
                     LabeledField(label: "提交部门", placeholder: "如『重客渠道部』，需与 Jira 选项完全一致", text: $draftDept)
                     LabeledField(label: "分公司", placeholder: "如『总公司』，邮件中无法自动解析", text: $branchCompany)
+                    LabeledField(label: "内部人力(人/天)", placeholder: "如『3.1』，手工填写后同步写入 REQ", text: $innerManpower, labelWidth: 105)
+                    LabeledField(label: "外部人力(人/天)", placeholder: "如『6』，手工填写后同步写入 REQ", text: $externalManpower, labelWidth: 105)
 
                     HStack(alignment: .top, spacing: 8) {
                         Text("邮件正文")
@@ -285,6 +290,8 @@ struct EmailCreateReqView: View {
             sender = parsed.fromName
             senderEmail = parsed.from
             content = parsed.body
+            innerManpower = ""
+            externalManpower = ""
             attachments = parsed.attachments
             attachmentSelection = Dictionary(uniqueKeysWithValues: parsed.attachments.map { att in
                 (att.id, true)
@@ -323,7 +330,9 @@ struct EmailCreateReqView: View {
             content: content,
             applyNo: "",
             remKeys: [],
-            attachments: []
+            attachments: [],
+            innerManpower: innerManpower.trimmingCharacters(in: .whitespacesAndNewlines),
+            externalManpower: externalManpower.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
         // 获取勾选的附件
@@ -365,6 +374,7 @@ struct EmailCreateReqView: View {
                 // 上传邮件附件（直接上传本地数据，不走 OA 下载）
                 if !pickedAttachments.isEmpty {
                     appendLog("上传邮件附件 \(pickedAttachments.count) 个 ...")
+                    var uploaded = 0
                     for att in pickedAttachments {
                         do {
                             try await JiraService.shared.uploadAttachment(
@@ -373,11 +383,12 @@ struct EmailCreateReqView: View {
                                 fileData: att.data,
                                 mimeType: att.mimeType
                             )
-                            appendLog("  ✓ 已上传: \(att.name)")
+                            uploaded += 1
                         } catch {
-                            appendLog("  ✗ 附件失败 [\(att.name)]: \(error.localizedDescription)")
+                            appendLog("[附件失败] \(att.name): \(error.localizedDescription)")
                         }
                     }
+                    appendLog("[附件] 已上传 \(uploaded)/\(pickedAttachments.count)")
                 }
 
                 await MainActor.run {

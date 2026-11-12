@@ -20,6 +20,7 @@ public static class OAParser
         if (remKeys.Count == 0)
             remKeys = ExtractREMKeys(html + " " + content + " " + title);
         var attachments = ExtractAttachments(html, baseURL);
+        var reqEvalLinks = ExtractReqEvalLinks(html, baseURL);
 
         return new OAParseResult
         {
@@ -31,7 +32,8 @@ public static class OAParser
             Content = content,
             ApplyNo = applyNo,
             RemKeys = remKeys,
-            Attachments = attachments
+            Attachments = attachments,
+            ReqEvalOALink = reqEvalLinks.Count > 0 ? reqEvalLinks[0].Link : ""
         };
     }
 
@@ -105,6 +107,156 @@ public static class OAParser
     {
         var result = ExtractFieldByTd(html, new[] { "申请单编号", "单据编号", "文档编号", "流水号", "编号" });
         return result ?? "";
+    }
+
+    // MARK: - 常规需求评估申请（关联签报 OA 链接）
+
+    /// <summary>命中的 relevance 字段关键字（OA 表单上的"常规需求评估申请"）</summary>
+    private static readonly string[] ReqEvalKeywords = { "常规需求评估申请", "需求评估申请", "需求评估" };
+
+    /// <summary>OA 签报详情页路径</summary>
+    private const string ReqEvalPath = "/km/review/km_review_main/kmReviewMain.do?method=view&fdId=";
+
+    /// <summary>解析"常规需求评估申请"字段关联的 OA 签报链接</summary>
+    public static List<(string Link, string Subject)> ExtractReqEvalLinks(string html, string baseURL)
+    {
+        var result = new List<(string Link, string Subject)>();
+        var seen = new HashSet<string>();
+        var baseClean = baseURL.TrimEnd('/');
+
+        void Add(string link, string subject)
+        {
+            if (!seen.Add(link)) return;
+            result.Add((link, subject));
+        }
+
+        // 策略 A：relevance 字段的 hidden input 中存了关联文档 JSON
+        // <input name="extendDataFormInfo.value(fd_xxx)" value="[{&quot;docId&quot;:&quot;...&quot;,...}]" subject = 常规需求评估申请 ...>
+        foreach (Match m in Regex.Matches(html, @"<input[^>]*name=""extendDataFormInfo\.value\([^)]*\)""[^>]*>", RegexOptions.IgnoreCase))
+        {
+            var tag = m.Value;
+            var vm = Regex.Match(tag, @"value=""([^""]*)""");
+            if (!vm.Success) continue;
+            var raw = vm.Groups[1].Value;
+            if (!raw.Contains("docId") || !raw.Contains("KmReviewMain")) continue;
+            if (!IsReqEvalField(html, m.Index, tag)) continue;
+            foreach (var doc in ExtractRelevanceDocs(DecodeHtmlEntities(raw)))
+                Add(baseClean + ReqEvalPath + doc.DocId, doc.Subject);
+        }
+
+        // 策略 B（兜底）："需求评估"关键字之后的窗口内直接出现的签报链接
+        if (result.Count == 0)
+        {
+            foreach (var key in ReqEvalKeywords)
+            {
+                var pos = 0;
+                while (true)
+                {
+                    var at = html.IndexOf(key, pos, StringComparison.Ordinal);
+                    if (at < 0) break;
+                    var window = html[at..Math.Min(at + key.Length + 3000, html.Length)];
+                    foreach (Match lm in Regex.Matches(window, @"kmReviewMain\.do[^""'<> ]*?fdId=([0-9a-fA-F]{16,})", RegexOptions.IgnoreCase))
+                        Add(baseClean + ReqEvalPath + lm.Groups[1].Value, "");
+                    pos = at + key.Length;
+                }
+                if (result.Count > 0) break;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>判断该 relevance hidden input 是否属于"需求评估"字段（字段标签位于 input 之前）</summary>
+    private static bool IsReqEvalField(string html, int inputIndex, string tag)
+    {
+        foreach (var key in ReqEvalKeywords)
+        {
+            // input 自带的未加引号属性：subject = 常规需求评估申请
+            if (Regex.IsMatch(tag, @"subject\s*=\s*[^>]*" + Regex.Escape(key), RegexOptions.IgnoreCase)) return true;
+            // 回看 1500 字符，字段标签 td 在 hidden input 之前
+            var start = Math.Max(0, inputIndex - 1500);
+            var window = html.Substring(start, inputIndex - start);
+            if (window.Contains(key)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>从 relevance JSON 数组中取出各关联文档的 docId / subject</summary>
+    private static List<(string DocId, string Subject)> ExtractRelevanceDocs(string json)
+    {
+        var result = new List<(string DocId, string Subject)>();
+        foreach (Match objM in Regex.Matches(json, @"\{[^{}]*\}"))
+        {
+            var obj = objM.Value;
+            var dm = Regex.Match(obj, @"""docId""\s*:\s*""([0-9a-fA-F]+)""");
+            if (!dm.Success) continue;
+            var mm = Regex.Match(obj, @"""fdModelName""\s*:\s*""([^""]*)""");
+            if (mm.Success && !mm.Groups[1].Value.Contains("KmReviewMain")) continue;
+            var sm = Regex.Match(obj, @"""subject""\s*:\s*""([^""]*)""");
+            var subject = sm.Success ? DecodeUnicodeEscapes(sm.Groups[1].Value) : "";
+            result.Add((dm.Groups[1].Value, subject));
+        }
+        return result;
+    }
+
+    // MARK: - 预估产能/产出（需求评估 OA 页面字段）
+
+    /// <summary>需求评估页面上的预估字段标签</summary>
+    private static readonly string[] EstimatedCapacityKeys = { "预估产能/产出", "预估产能", "预估产出" };
+
+    /// <summary>解析『预估产能/产出』字段值（需求评估 OA 页面）</summary>
+    public static string ExtractEstimatedCapacity(string html)
+    {
+        var value = ExtractFieldByTd(html, EstimatedCapacityKeys);
+        return (value ?? "").Trim();
+    }
+
+    // MARK: - 内部/外部人力（评估人处理意见）
+
+    /// <summary>处理意见中的内/外部人天数写法，如“预估内部人力3.1人/天，外部人力6人/天”</summary>
+    private const string InnerManpowerPattern = @"内部人力\s*(\d+(?:\.\d+)?)\s*人\s*[/／]?\s*天";
+    private const string OuterManpowerPattern = @"外部人力\s*(\d+(?:\.\d+)?)\s*人\s*[/／]?\s*天";
+
+    /// <summary>从审批日志中解析指定操作人（评估人）同一行处理意见里的内部/外部人力（人/天）</summary>
+    /// <param name="html">审批日志 HTML（来自 lbpmAuditNote.do）</param>
+    /// <param name="operatorName">评估人姓名（如“吴润龙”）</param>
+    public static (string Inner, string Outer) ExtractManpowerByOperator(string html, string operatorName)
+    {
+        var name = operatorName.Trim();
+        if (string.IsNullOrEmpty(name)) return ("", "");
+
+        var inner = "";
+        var outer = "";
+
+        // 策略 A（主）：审批记录表格行 = 时间 | 节点名称 | 操作者 | 操作 | 处理意见
+        foreach (Match trMatch in Regex.Matches(html, @"<tr[^>]*>([\s\S]*?)</tr>", RegexOptions.IgnoreCase))
+        {
+            var cells = Regex.Matches(trMatch.Groups[1].Value, @"<td[^>]*>([\s\S]*?)</td>", RegexOptions.IgnoreCase);
+            if (cells.Count < 5) continue;
+            var operatorText = StripTags(cells[2].Groups[1].Value).Trim();
+            if (!operatorText.StartsWith(name, StringComparison.Ordinal)) continue;
+
+            var commentText = StripTags(cells[4].Groups[1].Value);
+            if (string.IsNullOrEmpty(inner)) inner = Regex.Match(commentText, InnerManpowerPattern).Groups[1].Value;
+            if (string.IsNullOrEmpty(outer)) outer = Regex.Match(commentText, OuterManpowerPattern).Groups[1].Value;
+            if (!string.IsNullOrEmpty(inner) && !string.IsNullOrEmpty(outer)) break;
+        }
+
+        // 策略 B（兜底）：操作人姓名之后窗口内的处理意见
+        if (string.IsNullOrEmpty(inner) && string.IsNullOrEmpty(outer))
+        {
+            var pos = 0;
+            while (true)
+            {
+                var at = html.IndexOf(name, pos, StringComparison.Ordinal);
+                if (at < 0) break;
+                var window = html[at..Math.Min(at + name.Length + 1500, html.Length)];
+                var text = StripTags(window);
+                if (string.IsNullOrEmpty(inner)) inner = Regex.Match(text, InnerManpowerPattern).Groups[1].Value;
+                if (string.IsNullOrEmpty(outer)) outer = Regex.Match(text, OuterManpowerPattern).Groups[1].Value;
+                pos = at + name.Length;
+            }
+        }
+        return (inner, outer);
     }
 
     // MARK: - Content
@@ -287,7 +439,8 @@ public static class OAParser
             var fdId = m.Groups[5].Value;
             var fdFileId = m.Groups[8].Value;
             var name = DecodeUnicodeEscapes(rawName);
-            var key = prefix + "_" + fdId;
+            // 页面内去重优先文件实体 id：同一份文件被多个组件重复登记时只留一份
+            var key = string.IsNullOrEmpty(fdFileId) ? prefix + "_" + fdId : "file:" + fdFileId;
             if (!seen.Add(key)) continue;
 
             var modelName = modelMap.GetValueOrDefault(modelId, "");
@@ -311,11 +464,14 @@ public static class OAParser
                 if (m.Groups.Count < 6) continue;
                 var rawName = m.Groups[1].Value;
                 var fdId = m.Groups[2].Value;
+                var fdFileId = m.Groups[5].Value;
                 var name = DecodeUnicodeEscapes(rawName);
-                if (!seen.Add(fdId)) continue;
+                // 宽松路径也能拿到 fdFileId（第 6 个参数），据此去重
+                var looseKey = string.IsNullOrEmpty(fdFileId) ? fdId : "file:" + fdFileId;
+                if (!seen.Add(looseKey)) continue;
                 var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
                 var url = baseURL + "/sys/attachment/sys_att_main/sysAttMain.do?method=download&fdId=" + fdId + "&isSupportDirect=null&downloadType=manual&downloadFlag=" + ts;
-                result.Add(new OAAttachment { Name = string.IsNullOrEmpty(name) ? fdId : name, Url = url, FdId = fdId });
+                result.Add(new OAAttachment { Name = string.IsNullOrEmpty(name) ? fdId : name, Url = url, FdId = fdId, FdFileId = fdFileId });
             }
         }
 

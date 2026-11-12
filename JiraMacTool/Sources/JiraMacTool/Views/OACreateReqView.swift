@@ -4,6 +4,8 @@ struct OACreateReqView: View {
     // 输入
     @State private var oaLink: String = ""
     @AppStorage("oa_template_req_key") private var templateReqKey: String = "REQ-23963"
+    /// 需求评估签报中的评估人（审批日志中该操作人的处理意见携带内/外部人力）
+    @AppStorage("oa_evaluator") private var evaluator: String = "吴润龙"
     @AppStorage("oa_fixed_system_parent") private var fixedSystemParent: String = "核心条线"
     @AppStorage("oa_fixed_system_child") private var fixedSystemChild: String = "新一代非车险承保核心系统"
     @State private var systemChildOption: String = "新一代非车险承保核心系统"
@@ -27,6 +29,9 @@ struct OACreateReqView: View {
     @State private var applyNo: String = ""
     @State private var content: String = ""
     @State private var remText: String = ""
+    @State private var reqEvalOALink: String = ""
+    @State private var innerManpower: String = ""
+    @State private var externalManpower: String = ""
     @State private var attachments: [OAAttachment] = []
     @State private var attachmentSelection: [UUID: Bool] = [:]
 
@@ -62,6 +67,12 @@ struct OACreateReqView: View {
                         text: $templateReqKey,
                         labelWidth: 80
                     )
+                    LabeledField(
+                        label: "评估人",
+                        placeholder: "审批意见中该操作人的处理意见用于解析内/外部人力",
+                        text: $evaluator,
+                        labelWidth: 80
+                    )
                     HStack {
                         Button(action: parseAction) {
                             HStack(spacing: 5) {
@@ -81,13 +92,18 @@ struct OACreateReqView: View {
 
                 // 解析后内容
                 CardSection(title: "解析结果（可手工修正）", icon: "pencil.and.list.clipboard", iconColor: .blue) {
-                    LabeledField(label: "标题", placeholder: "OA 标题", text: $title)
-                    LabeledField(label: "拟稿人", placeholder: "OA 拟稿人", text: $drafter)
-                    LabeledField(label: "拟稿部门(原)", placeholder: "OA 拟稿部门原文", text: $draftDeptOriginal)
-                    LabeledField(label: "提交部门", placeholder: "如『重客渠道部』，需与 Jira 选项完全一致", text: $draftDeptKeyword)
-                    LabeledField(label: "分公司", placeholder: "如『总公司』，将从 OA 自动解析", text: $branchCompany)
-                    LabeledField(label: "申请单编号", placeholder: "作为签报号", text: $applyNo)
-                    LabeledField(label: "REM 号", placeholder: "多个用英文逗号分隔，如 REM-123,REM-456", text: $remText)
+                    Group {
+                        LabeledField(label: "标题", placeholder: "OA 标题", text: $title)
+                        LabeledField(label: "拟稿人", placeholder: "OA 拟稿人", text: $drafter)
+                        LabeledField(label: "拟稿部门(原)", placeholder: "OA 拟稿部门原文", text: $draftDeptOriginal)
+                        LabeledField(label: "提交部门", placeholder: "如『重客渠道部』，需与 Jira 选项完全一致", text: $draftDeptKeyword)
+                        LabeledField(label: "分公司", placeholder: "如『总公司』，将从 OA 自动解析", text: $branchCompany)
+                        LabeledField(label: "申请单编号", placeholder: "作为签报号", text: $applyNo)
+                        LabeledField(label: "REM 号", placeholder: "多个用英文逗号分隔，如 REM-123,REM-456", text: $remText)
+                        LabeledField(label: "需求评估OA链接", placeholder: "自动解析『常规需求评估申请』关联的 OA 链接，可手工修正", text: $reqEvalOALink, labelWidth: 105)
+                        LabeledField(label: "内部人力(人/天)", placeholder: "从评估人处理意见解析，可手工修正", text: $innerManpower, labelWidth: 105)
+                        LabeledField(label: "外部人力(人/天)", placeholder: "从评估人处理意见解析，可手工修正", text: $externalManpower, labelWidth: 105)
+                    }
 
                     HStack(alignment: .top, spacing: 8) {
                         Text("申请内容")
@@ -259,7 +275,7 @@ struct OACreateReqView: View {
         let link = oaLink.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !link.isEmpty else { return }
         isParsing = true
-        appendLog("开始解析：\(link)")
+        appendLog("开始解析：fdId=\(shortDocId(link))")
 
         Task {
             defer { Task { @MainActor in self.isParsing = false } }
@@ -273,11 +289,12 @@ struct OACreateReqView: View {
 
                 // 3) 额外抓取审批日志 AJAX 以提取 REM 号
                 var finalParsed = parsed
+                var mainAuditHTML = ""
                 if finalParsed.remKeys.isEmpty {
                     if let auditURL = buildAuditNoteURL(html: html, baseURL: baseURL) {
-                        appendLog("[进度] 正在抓取审批日志...")
                         do {
                             let auditHTML = try await OAService.shared.fetchHTML(urlString: auditURL)
+                            mainAuditHTML = auditHTML
                             let extraREM = OAParser.extractREMFromAuditNotes(html: auditHTML)
                             if !extraREM.isEmpty {
                                 finalParsed = OAParseResult(
@@ -289,19 +306,21 @@ struct OACreateReqView: View {
                                     content: finalParsed.content,
                                     applyNo: finalParsed.applyNo,
                                     remKeys: extraREM,
-                                    attachments: finalParsed.attachments
+                                    attachments: finalParsed.attachments,
+                                    reqEvalOALink: finalParsed.reqEvalOALink
                                 )
-                                appendLog("[调试] 从审批日志提取到 REM: \(extraREM.joined(separator: ","))")
+                                // REM 号由下方的『解析完成』行统一展示，不单独占一行
                             }
 
                             let auditAttachments = OAParser.parseAttachments(html: auditHTML, baseURL: baseURL)
                             if !auditAttachments.isEmpty {
-                                let existingFdIds = Set(finalParsed.attachments.map { $0.fdId })
-                                for att in auditAttachments {
-                                    if !existingFdIds.contains(att.fdId) {
-                                        finalParsed.attachments.append(att)
-                                        appendLog("[调试] 从审批日志补充附件: \(att.name)")
-                                    }
+                                // 同一份文件在表单页和审批日志页的 fdId 不同（挂载关系各自一条），
+                                // 必须按文件实体 dedupKey 去重，否则 Jira 会挂两份重复附件
+                                let existingKeys = Set(finalParsed.attachments.map { $0.dedupKey })
+                                let extra = auditAttachments.filter { !existingKeys.contains($0.dedupKey) }
+                                if !extra.isEmpty {
+                                    finalParsed.attachments.append(contentsOf: extra)
+                                    appendLog("[调试] 审批日志补充附件 \(extra.count) 个")
                                 }
                             }
                         } catch {
@@ -322,14 +341,25 @@ struct OACreateReqView: View {
                 }
                 branchCompany = deriveBranchCompany(finalParsed.draftDept)
                 applyNo = finalParsed.applyNo
-                content = finalParsed.content
+                // 需求评估 OA 页面：『预估产能/产出』拼到申请内容最前面，评估人处理意见中解析内/外部人力
+                let evalInfo = await fetchReqEvalInfo(
+                    parsed: finalParsed, html: html, baseURL: baseURL, mainAuditHTML: mainAuditHTML)
+                var contentText = finalParsed.content
+                if !evalInfo.capacity.isEmpty && !contentText.contains(evalInfo.capacity) {
+                    contentText = "预估产能/产出：\(evalInfo.capacity)\n" + contentText
+                }
+                content = contentText
+                innerManpower = evalInfo.inner
+                externalManpower = evalInfo.outer
                 remText = finalParsed.remKeys.joined(separator: ",")
+                reqEvalOALink = finalParsed.reqEvalOALink
                 attachments = finalParsed.attachments
                 attachmentSelection = Dictionary(uniqueKeysWithValues: finalParsed.attachments.map { att in
                     let isSelected = !att.isTemplateAttachment
                     return (att.id, isSelected)
                 })
                 appendLog("解析完成：提交部门=\(draftDeptKeyword)；分公司=\(branchCompany)；REM=\(finalParsed.remKeys.joined(separator: ","))；附件 \(finalParsed.attachments.count) 个")
+                appendLog(describeReqEval(evalInfo))
                 if finalParsed.title.isEmpty && finalParsed.drafter.isEmpty && finalParsed.applyNo.isEmpty {
                     appendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。")
                 }
@@ -339,6 +369,77 @@ struct OACreateReqView: View {
         }
     }
     
+    /// 把需求评估页面的抓取结果（预估产能/产出 + 评估人处理意见中的内/外部人力）汇成一行日志
+    private func describeReqEval(
+        _ info: (capacity: String, inner: String, outer: String, note: String)
+    ) -> String {
+        let ev = evaluator.trimmingCharacters(in: .whitespacesAndNewlines)
+        var line = "需求评估：产能=\(info.capacity.isEmpty ? "未解析" : info.capacity)"
+            + "；人力 内=\(info.inner.isEmpty ? "-" : info.inner) 外=\(info.outer.isEmpty ? "-" : info.outer) 人/天"
+            + "（评估人：\(ev.isEmpty ? "未填" : ev)"
+        if !reqEvalOALink.isEmpty { line += "，fdId=\(shortDocId(reqEvalOALink))" }
+        line += "）"
+        if !info.note.isEmpty { line += " [提示] \(info.note)" }
+        return line
+    }
+
+    /// 取 OA 链接里的 fdId 前 12 位作为日志短标识（完整链接见页面上的对应字段）
+    private func shortDocId(_ url: String) -> String {
+        guard let range = url.range(of: #"fdId=[a-f0-9]+"#, options: .regularExpression) else { return "?" }
+        return String(url[range].dropFirst(#"fdId="#.count).prefix(12))
+    }
+
+    /// 抓取『需求评估OA链接』对应的 OA 页面：解析『预估产能/产出』，并从审批日志中
+    /// 评估人所在行的处理意见里解析内部/外部人力；
+    /// 若未关联需求评估签报（录入的就是需求评估页面本身），则回退到当前页面。
+    /// 过程不逐行记日志，note 为空表示一切正常，由 describeReqEval 统一输出一行。
+    private func fetchReqEvalInfo(
+        parsed: OAParseResult, html: String, baseURL: String, mainAuditHTML: String
+    ) async -> (capacity: String, inner: String, outer: String, note: String) {
+        let evalLink = parsed.reqEvalOALink.trimmingCharacters(in: .whitespacesAndNewlines)
+        var formHTML = html
+        var pageBaseURL = baseURL
+        var auditHTML = mainAuditHTML
+        var note = ""
+
+        if evalLink.isEmpty {
+            note = "未关联评估签报，按当前页解析"
+        } else {
+            do {
+                formHTML = try await OAService.shared.fetchHTML(urlString: evalLink)
+                pageBaseURL = extractBaseURL(evalLink)
+                auditHTML = ""
+            } catch {
+                return ("", "", "", "抓取需求评估页面失败：\(error.localizedDescription)")
+            }
+        }
+
+        let capacity = OAParser.extractEstimatedCapacity(html: formHTML)
+
+        let evaluatorName = evaluator.trimmingCharacters(in: .whitespacesAndNewlines)
+        if evaluatorName.isEmpty {
+            return (capacity, "", "", "评估人为空")
+        }
+
+        // 评估人的内/外部人力位于审批日志（流程轨迹）的处理意见列
+        if auditHTML.isEmpty, let auditURL = buildAuditNoteURL(html: formHTML, baseURL: pageBaseURL) {
+            do {
+                auditHTML = try await OAService.shared.fetchHTML(urlString: auditURL)
+            } catch {
+                note = "抓取审批日志失败：\(error.localizedDescription)"
+            }
+        }
+        if auditHTML.isEmpty {
+            return (capacity, "", "", note.isEmpty ? "未取得审批日志" : note)
+        }
+
+        let manpower = OAParser.extractManpowerByOperator(html: auditHTML, operatorName: evaluatorName)
+        if manpower.inner.isEmpty && manpower.outer.isEmpty {
+            note = "评估人处理意见无人力数字"
+        }
+        return (capacity, manpower.inner, manpower.outer, note)
+    }
+
     /// 构造审批日志（流程轨迹）AJAX URL，用于提取 REM
     private func buildAuditNoteURL(html: String, baseURL: String) -> String? {
         // 预处理：折叠 JS 多行字符串拼接 'xxx' + 'yyy' → 'xxxyyy'，以支持跨行 URL（与 C# 端对齐）
@@ -399,7 +500,10 @@ struct OACreateReqView: View {
                 .split(whereSeparator: { ",，; ；\n\t".contains($0) })
                 .map { $0.trimmingCharacters(in: .whitespaces).uppercased() }
                 .filter { !$0.isEmpty },
-            attachments: attachments
+            attachments: attachments,
+            reqEvalOALink: reqEvalOALink.trimmingCharacters(in: .whitespacesAndNewlines),
+            innerManpower: innerManpower.trimmingCharacters(in: .whitespacesAndNewlines),
+            externalManpower: externalManpower.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         let picked = attachments.filter { (attachmentSelection[$0.id] ?? true) }
         let dept = draftDeptKeyword.trimmingCharacters(in: .whitespacesAndNewlines)

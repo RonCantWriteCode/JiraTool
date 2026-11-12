@@ -29,6 +29,14 @@ public class OAAttachment
     public string ModelId { get; set; } = "";
     /// <summary>是否为需求模板附件（默认不勾选）</summary>
     public bool IsTemplateAttachment { get; set; }
+
+    /// <summary>
+    /// 跨页面（表单页 / 审批日志页）判定「同一个文件」的键。
+    /// FdFileId 是 sysAttMain 的文件实体 id，同一份内容被多处挂载时保持不变；
+    /// FdId 是挂载关系 id，每处各生成一条，跨页面必然不同，不能用来去重。
+    /// 降级解析取不到 FdFileId 时退回文件名。
+    /// </summary>
+    public string DedupKey => string.IsNullOrEmpty(FdFileId) ? "name:" + Name : "file:" + FdFileId;
 }
 
 /// <summary>OA 解析结果（移植自 Swift OAParseResult）</summary>
@@ -43,6 +51,14 @@ public class OAParseResult
     public string ApplyNo { get; set; } = "";
     public List<string> RemKeys { get; set; } = new();
     public List<OAAttachment> Attachments { get; set; } = new();
+    /// <summary>『常规需求评估申请』字段关联的 OA 签报链接</summary>
+    public string ReqEvalOALink { get; set; } = "";
+
+    /// <summary>评估人处理意见中的内部人力（人/天）</summary>
+    public string InnerManpower { get; set; } = "";
+
+    /// <summary>评估人处理意见中的外部人力（人/天）</summary>
+    public string ExternalManpower { get; set; } = "";
 }
 
 /// <summary>OA 附件下载结果（移植自 Swift OADownloadedAttachment）</summary>

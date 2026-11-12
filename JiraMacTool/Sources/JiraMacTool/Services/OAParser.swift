@@ -11,6 +11,12 @@ struct OAAttachment: Identifiable, Hashable, Sendable {
     var modelName: String = ""     // Swf_AttachmentObject 的 modelName
     var modelId: String = ""       // Swf_AttachmentObject 的 modelId
     var isTemplateAttachment: Bool = false // 是否为需求模板附件（默认不勾选）
+
+    /// 跨页面（表单页 / 审批日志页）判定「同一个文件」的键。
+    /// fdFileId 是 sysAttMain 的文件实体 id，同一份内容被多处挂载时保持不变；
+    /// fdId 是挂载关系 id，每处各生成一条，跨页面必然不同，不能用来去重。
+    /// 降级解析（宽松/兜底/DOM）取不到 fdFileId 时退回文件名。
+    var dedupKey: String { fdFileId.isEmpty ? "name:" + name : "file:" + fdFileId }
 }
 
 struct OAParseResult {
@@ -23,6 +29,9 @@ struct OAParseResult {
     var applyNo: String          // 申请单编号
     var remKeys: [String]        // 自动检测到的 REM
     var attachments: [OAAttachment]
+    var reqEvalOALink: String = ""  // 『常规需求评估申请』字段关联的 OA 签报链接
+    var innerManpower: String = ""   // 评估人处理意见中的内部人力（人/天）
+    var externalManpower: String = ""  // 评估人处理意见中的外部人力（人/天）
 }
 
 /// OA 页面启发式解析器
@@ -49,6 +58,7 @@ enum OAParser {
             remKeys = extractREMKeys(from: html + " " + content + " " + title)
         }
         let attachments = extractAttachments(html: html, baseURL: baseURL)
+        let reqEvalLinks = extractReqEvalLinks(html: html, baseURL: baseURL)
 
         return OAParseResult(
             title: title,
@@ -59,7 +69,8 @@ enum OAParser {
             content: content,
             applyNo: applyNo,
             remKeys: remKeys,
-            attachments: attachments
+            attachments: attachments,
+            reqEvalOALink: reqEvalLinks.first?.link ?? ""
         )
     }
 
@@ -147,6 +158,156 @@ enum OAParser {
 
     private static func extractApplyNo(html: String) -> String {
         return extractFieldByTd(html: html, keys: ["申请单编号", "单据编号", "文档编号", "流水号", "编号"]) ?? ""
+    }
+
+    // MARK: - 常规需求评估申请（关联签报 OA 链接）
+
+    /// 命中的 relevance 字段关键字（OA 表单上的“常规需求评估申请”）
+    private static let reqEvalKeywords = ["常规需求评估申请", "需求评估申请", "需求评估"]
+
+    /// OA 签报详情页路径
+    private static let reqEvalPath = "/km/review/km_review_main/kmReviewMain.do?method=view&fdId="
+
+    /// 解析“常规需求评估申请”字段关联的 OA 签报链接
+    static func extractReqEvalLinks(html: String, baseURL: String) -> [(link: String, subject: String)] {
+        let ns = html as NSString
+        let fullRange = NSRange(location: 0, length: ns.length)
+        let base = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        var result: [(link: String, subject: String)] = []
+        var seen = Set<String>()
+
+        func addLink(_ link: String, subject: String) {
+            guard !link.isEmpty, !seen.contains(link) else { return }
+            seen.insert(link)
+            result.append((link, subject))
+        }
+
+        // 策略 A：relevance 字段的 hidden input 里存了关联文档 JSON
+        // <input name="extendDataFormInfo.value(fd_xxx)" value="[{&quot;docId&quot;:&quot;...&quot;,...}]" subject = 常规需求评估申请 ...>
+        let inputPattern = #"(?i)<input[^>]*name="extendDataFormInfo\.value\([^)]*\)"[^>]*>"#
+        if let regex = try? NSRegularExpression(pattern: inputPattern) {
+            for m in regex.matches(in: html, options: [], range: fullRange) {
+                let tag = ns.substring(with: m.range)
+                guard let raw = firstMatch(in: tag, pattern: #"(?i)value="([^"]*)""#),
+                      raw.contains("docId"), raw.contains("KmReviewMain") else { continue }
+                guard isReqEvalField(html: ns, inputLocation: m.range.location, tag: tag) else { continue }
+                for doc in extractRelevanceDocs(json: decodeHTMLEntities(raw)) {
+                    addLink(base + reqEvalPath + doc.docId, subject: doc.subject)
+                }
+            }
+        }
+
+        // 策略 B（兜底）：“需求评估”关键字之后的窗口内直接出现的签报链接
+        if result.isEmpty {
+            let linkPattern = #"(?i)kmReviewMain\.do[^"'<> ]*?fdId=([0-9a-fA-F]{16,})"#
+            for key in reqEvalKeywords {
+                var searchPos = 0
+                while searchPos < ns.length {
+                    let found = ns.range(of: key, options: [], range: NSRange(location: searchPos, length: ns.length - searchPos))
+                    guard found.location != NSNotFound else { break }
+                    let windowEnd = min(found.location + found.length + 3000, ns.length)
+                    let window = ns.substring(with: NSRange(location: found.location, length: windowEnd - found.location))
+                    let wns = window as NSString
+                    if let regex = try? NSRegularExpression(pattern: linkPattern) {
+                        for lm in regex.matches(in: window, options: [], range: NSRange(location: 0, length: wns.length)) {
+                            let r = lm.range(at: 1)
+                            guard r.location != NSNotFound else { continue }
+                            addLink(base + reqEvalPath + wns.substring(with: r), subject: "")
+                        }
+                    }
+                    searchPos = found.location + found.length
+                }
+                if !result.isEmpty { break }
+            }
+        }
+        return result
+    }
+
+    /// 判断该 relevance hidden input 是否属于“需求评估”字段（字段标签位于 input 之前）
+    private static func isReqEvalField(html ns: NSString, inputLocation: Int, tag: String) -> Bool {
+        let tagRange = NSRange(location: 0, length: (tag as NSString).length)
+        for key in reqEvalKeywords {
+            // input 自带的未加引号属性：subject = 常规需求评估申请
+            let subjectPattern = "subject\\s*=\\s*[^>]*" + NSRegularExpression.escapedPattern(for: key)
+            if let regex = try? NSRegularExpression(pattern: subjectPattern, options: .caseInsensitive),
+               regex.firstMatch(in: tag, options: [], range: tagRange) != nil { return true }
+            // 回看 1500 个 UTF-16 单元，字段标签 td 在 hidden input 之前
+            let start = max(0, inputLocation - 1500)
+            let window = ns.substring(with: NSRange(location: start, length: inputLocation - start))
+            if window.contains(key) { return true }
+        }
+        return false
+    }
+
+    /// 从 relevance JSON 数组中取出各关联文档的 docId / subject
+    private static func extractRelevanceDocs(json: String) -> [(docId: String, subject: String)] {
+        var result: [(docId: String, subject: String)] = []
+        guard let regex = try? NSRegularExpression(pattern: #"\{[^{}]*\}"#) else { return result }
+        let ns = json as NSString
+        for m in regex.matches(in: json, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let obj = ns.substring(with: m.range)
+            guard let docId = firstMatch(in: obj, pattern: #""docId"\s*:\s*"([0-9a-fA-F]+)""#), !docId.isEmpty else { continue }
+            let model = firstMatch(in: obj, pattern: #""fdModelName"\s*:\s*"([^"]*)""#) ?? ""
+            if !model.isEmpty && !model.contains("KmReviewMain") { continue }
+            let subject = firstMatch(in: obj, pattern: #""subject"\s*:\s*"([^"]*)""#).map { decodeUnicodeEscapes($0) } ?? ""
+            result.append((docId, subject))
+        }
+        return result
+    }
+
+    // MARK: - 预估产能/产出（需求评估 OA 页面字段）
+
+    /// 需求评估页面上的预估字段标签
+    private static let estimatedCapacityKeys = ["预估产能/产出", "预估产能", "预估产出"]
+
+    /// 解析『预估产能/产出』字段值（需求评估 OA 页面）
+    static func extractEstimatedCapacity(html: String) -> String {
+        let value = extractFieldByTd(html: html, keys: estimatedCapacityKeys) ?? ""
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - 内部/外部人力（评估人处理意见）
+
+    /// 处理意见中的内/外部人天数写法，如“预估内部人力3.1人/天，外部人力6人/天”
+    private static let innerManpowerPattern = #"内部人力\s*(\d+(?:\.\d+)?)\s*人\s*[/／]?\s*天"#
+    private static let outerManpowerPattern = #"外部人力\s*(\d+(?:\.\d+)?)\s*人\s*[/／]?\s*天"#
+
+    /// 从审批日志中解析指定操作人（评估人）同一行处理意见里的内部/外部人力（人/天）
+    static func extractManpowerByOperator(html: String, operatorName: String) -> (inner: String, outer: String) {
+        let name = operatorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return ("", "") }
+
+        var inner = ""
+        var outer = ""
+
+        // 策略 A（主）：审批记录表格行 = 时间 | 节点名称 | 操作者 | 操作 | 处理意见
+        for row in allMatches(in: html, pattern: #"<tr[^>]*>([\s\S]*?)</tr>"#) {
+            let cells = allMatches(in: row[0], pattern: #"<td[^>]*>([\s\S]*?)</td>"#)
+            if cells.count < 5 { continue }
+            let operatorText = stripTags(cells[2][0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard operatorText.hasPrefix(name) else { continue }
+            let commentText = stripTags(cells[4][0])
+            if inner.isEmpty { inner = firstMatch(in: commentText, pattern: innerManpowerPattern) ?? "" }
+            if outer.isEmpty { outer = firstMatch(in: commentText, pattern: outerManpowerPattern) ?? "" }
+            if !inner.isEmpty && !outer.isEmpty { break }
+        }
+
+        // 策略 B（兜底）：操作人姓名之后窗口内的处理意见
+        if inner.isEmpty && outer.isEmpty {
+            let ns = html as NSString
+            var pos = 0
+            while pos < ns.length {
+                let at = ns.range(of: name, range: NSRange(location: pos, length: ns.length - pos))
+                if at.location == NSNotFound { break }
+                let window = ns.substring(
+                    with: NSRange(location: at.location, length: min(at.length + 1500, ns.length - at.location)))
+                let text = stripTags(window)
+                if inner.isEmpty { inner = firstMatch(in: text, pattern: innerManpowerPattern) ?? "" }
+                if outer.isEmpty { outer = firstMatch(in: text, pattern: outerManpowerPattern) ?? "" }
+                pos = at.location + at.length
+            }
+        }
+        return (inner, outer)
     }
 
     // MARK: - 核心字段抽取：<td class="td_normal_title">KEY</td><td>VALUE</td>
@@ -819,7 +980,8 @@ enum OAParser {
                     let fdId = ns.substring(with: match.range(at: 5))
                     let fdFileId = ns.substring(with: match.range(at: 8))
                     let name = decodeUnicodeEscapes(rawName)
-                    let key = prefix + "_" + fdId
+                    // 页面内去重同样优先文件实体 id：同一份文件被多个组件重复登记时只留一份
+                    let key = fdFileId.isEmpty ? prefix + "_" + fdId : "file:" + fdFileId
                     if seen.contains(key) { continue }
                     seen.insert(key)
                     let modelName = modelMap[modelId] ?? ""
@@ -863,12 +1025,17 @@ enum OAParser {
                         let fdId = ns.substring(with: match.range(at: 2))
                         let fdFileId = ns.substring(with: match.range(at: 5))
                         let name = decodeUnicodeEscapes(rawName)
-                        if seen.contains(fdId) { continue }
-                        seen.insert(fdId)
+                        let key = fdFileId.isEmpty ? fdId : "file:" + fdFileId
+                        if seen.contains(key) { continue }
+                        seen.insert(key)
                         let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
                         let url = baseURL + "/sys/attachment/sys_att_main/sysAttMain.do?method=download&fdId=\(fdId)&isSupportDirect=null&downloadType=manual&downloadFlag=\(timestamp)"
                         debugLog("[OAParser] 附件: \(name) fdId=\(fdId) fdFileId=\(fdFileId) url=\(url)")
-                        result.append(OAAttachment(name: name.isEmpty ? fdId : name, url: url))
+                        var att = OAAttachment(name: name.isEmpty ? fdId : name, url: url)
+                        att.fdId = fdId
+                        att.fdFileId = fdFileId
+                        if !globalPrefix.isEmpty { att.prefix = "fd_" + globalPrefix }
+                        result.append(att)
                     }
                 }
             }
@@ -887,7 +1054,9 @@ enum OAParser {
                             seen.insert(fdId)
                             let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
                             let url = baseURL + "/sys/attachment/sys_att_main/sysAttMain.do?method=download&fdId=\(fdId)&isSupportDirect=null&downloadType=manual&downloadFlag=\(timestamp)"
-                            result.append(OAAttachment(name: name.isEmpty ? fdId : name, url: url))
+                            var att = OAAttachment(name: name.isEmpty ? fdId : name, url: url)
+                            att.fdId = fdId   // 此路径 HTML 里没有 fdFileId，去重会自动降级为文件名
+                            result.append(att)
                         }
                     }
                 }
@@ -907,7 +1076,9 @@ enum OAParser {
                 let fullName = nameTitle + nameExt
                 let timestamp = String(Int(Date().timeIntervalSince1970 * 1000))
                 let url = baseURL + "/sys/attachment/sys_att_main/sysAttMain.do?method=download&fdId=\(fdId)&isSupportDirect=null&downloadType=manual&downloadFlag=\(timestamp)"
-                result.append(OAAttachment(name: fullName.isEmpty ? fdId : fullName, url: url))
+                var att = OAAttachment(name: fullName.isEmpty ? fdId : fullName, url: url)
+                att.fdId = fdId   // DOM 路径无 fdFileId，去重降级为文件名
+                result.append(att)
             }
         }
         // 方式 D：回退到 <a href=...> 链接

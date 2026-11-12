@@ -82,6 +82,14 @@
                         Placeholder="如『总公司』，邮件中无法自动解析"
                         Text="{Binding ParseBranchCompany, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="100"/>
+                    <controls:LabeledField Label="内部人力(人/天)"
+                        Placeholder="如『3.1』，手工填写后同步写入 REQ"
+                        Text="{Binding ParseInnerManpower, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
+                    <controls:LabeledField Label="外部人力(人/天)"
+                        Placeholder="如『6』，手工填写后同步写入 REQ"
+                        Text="{Binding ParseExternalManpower, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="100"/>

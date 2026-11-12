@@ -19,3 +19,6 @@ DerivedData/
 # Windows build output
 JiraWinTool/bin/
 JiraWinTool/obj/
+
+# JetBrains IDE
+.idea/

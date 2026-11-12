@@ -51,6 +51,11 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         DependencyProperty.Register(nameof(TemplateReqKey), typeof(string), typeof(OACreateReqView),
             new PropertyMetadata("REQ-23963"));
 
+    /// <summary>评估人：审批日志中该操作人的处理意见携带内/外部人力</summary>
+    public static readonly DependencyProperty EvaluatorProperty =
+        DependencyProperty.Register(nameof(Evaluator), typeof(string), typeof(OACreateReqView),
+            new PropertyMetadata("吴润龙", (d, _) => ((OACreateReqView)d).SaveFixedField("oa_evaluator", ((OACreateReqView)d).Evaluator)));
+
     public static readonly DependencyProperty ParseTitleProperty =
         DependencyProperty.Register(nameof(ParseTitle), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
 
@@ -71,6 +76,15 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
 
     public static readonly DependencyProperty ParseRemTextProperty =
         DependencyProperty.Register(nameof(ParseRemText), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
+
+    public static readonly DependencyProperty ParseReqEvalLinkProperty =
+        DependencyProperty.Register(nameof(ParseReqEvalLink), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
+
+    public static readonly DependencyProperty ParseInnerManpowerProperty =
+        DependencyProperty.Register(nameof(ParseInnerManpower), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
+
+    public static readonly DependencyProperty ParseExternalManpowerProperty =
+        DependencyProperty.Register(nameof(ParseExternalManpower), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
 
     public static readonly DependencyProperty ParseContentProperty =
         DependencyProperty.Register(nameof(ParseContent), typeof(string), typeof(OACreateReqView), new PropertyMetadata(""));
@@ -134,6 +148,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
 
     public string OALink { get => (string)GetValue(OALinkProperty); set => SetValue(OALinkProperty, value); }
     public string TemplateReqKey { get => (string)GetValue(TemplateReqKeyProperty); set => SetValue(TemplateReqKeyProperty, value); }
+    public string Evaluator { get => (string)GetValue(EvaluatorProperty); set => SetValue(EvaluatorProperty, value); }
     public string ParseTitle { get => (string)GetValue(ParseTitleProperty); set => SetValue(ParseTitleProperty, value); }
     public string ParseDrafter { get => (string)GetValue(ParseDrafterProperty); set => SetValue(ParseDrafterProperty, value); }
     public string ParseDraftDeptOriginal { get => (string)GetValue(ParseDraftDeptOriginalProperty); set => SetValue(ParseDraftDeptOriginalProperty, value); }
@@ -141,6 +156,9 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     public string ParseBranchCompany { get => (string)GetValue(ParseBranchCompanyProperty); set => SetValue(ParseBranchCompanyProperty, value); }
     public string ParseApplyNo { get => (string)GetValue(ParseApplyNoProperty); set => SetValue(ParseApplyNoProperty, value); }
     public string ParseRemText { get => (string)GetValue(ParseRemTextProperty); set => SetValue(ParseRemTextProperty, value); }
+    public string ParseReqEvalLink { get => (string)GetValue(ParseReqEvalLinkProperty); set => SetValue(ParseReqEvalLinkProperty, value); }
+    public string ParseInnerManpower { get => (string)GetValue(ParseInnerManpowerProperty); set => SetValue(ParseInnerManpowerProperty, value); }
+    public string ParseExternalManpower { get => (string)GetValue(ParseExternalManpowerProperty); set => SetValue(ParseExternalManpowerProperty, value); }
     public string ParseContent { get => (string)GetValue(ParseContentProperty); set => SetValue(ParseContentProperty, value); }
     public string FixedSystemParent { get => (string)GetValue(FixedSystemParentProperty); set => SetValue(FixedSystemParentProperty, value); }
     public string FixedSystemChild { get => (string)GetValue(FixedSystemChildProperty); set => SetValue(FixedSystemChildProperty, value); }
@@ -165,6 +183,7 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     private bool _isCreating;
     private string? _createdKey;
     private List<OAAttachment> _parsedAttachments = new();
+    private int _snapshotCount;
 
     public OACreateReqView()
     {
@@ -174,6 +193,9 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         var savedTemplate = AppConfig.Shared.GetCustom("oa_template_req_key");
         if (!string.IsNullOrEmpty(savedTemplate))
             TemplateReqKey = savedTemplate;
+
+        // 恢复已保存的评估人
+        LoadFixedField("oa_evaluator", v => Evaluator = v);
 
         // 恢复已保存的固定字段
         LoadFixedField("oa_fixed_system_parent", v => FixedSystemParent = v);
@@ -258,52 +280,50 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
         _isParsing = true;
         ParseBtn.IsEnabled = false;
         ParseProgress.Text = "解析中...";
-        AppendLog($"开始解析：{link}");
+        AppendLog($"开始解析：fdId={ShortDocId(link)}");
+        _snapshotCount = 0;
 
         try
         {
             var html = await OAService.Shared.FetchHTMLAsync(link);
-            // 保存调试快照
-            var dumpPath = DumpDebugHTML(html, link);
-            if (dumpPath != null)
-                AppendLog($"[调试] 已保存 HTML 快照：{dumpPath}");
+            // 保存调试快照（只计数，不逐份打日志）
+            if (DumpDebugHTML(html, link) != null) _snapshotCount++;
 
             var baseURL = ExtractBaseURL(link);
             var parsed = OAParser.Parse(html, baseURL);
 
             // 额外抓取审批日志 AJAX 以提取 REM 号
+            string? mainAuditHTML = null;
             if (parsed.RemKeys.Count == 0)
             {
                 var auditURL = BuildAuditNoteURL(html, baseURL);
                 if (auditURL != null)
                 {
-                    AppendLog($"[调试] 抓取审批日志：{auditURL}");
                     try
                     {
                         var auditHTML = await OAService.Shared.FetchHTMLAsync(auditURL);
-                        var dumpPath2 = DumpDebugHTML(auditHTML, auditURL);
-                        if (dumpPath2 != null)
-                            AppendLog($"[调试] 已保存审批日志快照：{dumpPath2}");
+                        mainAuditHTML = auditHTML;
+                        if (DumpDebugHTML(auditHTML, auditURL) != null) _snapshotCount++;
 
                         var extraREM = OAParser.ExtractREMFromAuditNotes(auditHTML);
                         if (extraREM.Count > 0)
                         {
+                            // REM 号由下方的『解析完成』行统一展示，不单独占一行
                             parsed.RemKeys = extraREM;
-                            AppendLog($"[调试] 从审批日志提取到 REM: {string.Join(",", extraREM)}");
                         }
 
                         // 解析审批日志中的附件并合并
                         var auditAttachments = OAParser.ParseAttachments(auditHTML, baseURL);
                         if (auditAttachments.Count > 0)
                         {
-                            var existingFdIds = new HashSet<string>(parsed.Attachments.Select(a => a.FdId));
-                            foreach (var att in auditAttachments)
+                            // 同一份文件在表单页和审批日志页的 FdId 不同（挂载关系各自一条），
+                            // 必须按文件实体 DedupKey 去重，否则 Jira 会挂两份重复附件
+                            var existingKeys = new HashSet<string>(parsed.Attachments.Select(a => a.DedupKey));
+                            var extra = auditAttachments.Where(a => !existingKeys.Contains(a.DedupKey)).ToList();
+                            if (extra.Count > 0)
                             {
-                                if (!existingFdIds.Contains(att.FdId))
-                                {
-                                    parsed.Attachments.Add(att);
-                                    AppendLog($"[调试] 从审批日志补充附件: {att.Name}");
-                                }
+                                parsed.Attachments.AddRange(extra);
+                                AppendLog($"[调试] 审批日志补充附件 {extra.Count} 个");
                             }
                         }
                     }
@@ -329,8 +349,16 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             }
             ParseBranchCompany = DeriveBranchCompany(parsed.DraftDept);
             ParseApplyNo = parsed.ApplyNo;
-            ParseContent = parsed.Content;
+            // 需求评估 OA 页面：『预估产能/产出』拼到申请内容最前面，评估人处理意见中解析内/外部人力
+            var evalInfo = await FetchReqEvalInfoAsync(parsed, html, baseURL, mainAuditHTML);
+            var content = parsed.Content;
+            if (!string.IsNullOrEmpty(evalInfo.Capacity) && !content.Contains(evalInfo.Capacity))
+                content = $"预估产能/产出：{evalInfo.Capacity}\n{content}";
+            ParseContent = content;
             ParseRemText = string.Join(",", parsed.RemKeys);
+            ParseReqEvalLink = parsed.ReqEvalOALink;
+            ParseInnerManpower = evalInfo.Inner;
+            ParseExternalManpower = evalInfo.Outer;
             _parsedAttachments = parsed.Attachments;
 
             // 更新附件列表
@@ -342,6 +370,9 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             RefreshAttachmentList();
 
             AppendLog($"解析完成：提交部门={ParseDraftDeptKeyword}；分公司={ParseBranchCompany}；REM={string.Join(",", parsed.RemKeys)}；附件 {parsed.Attachments.Count} 个");
+            AppendLog(DescribeReqEval(evalInfo));
+            if (_snapshotCount > 0)
+                AppendLog($"[调试] 已保存 HTML 快照 {_snapshotCount} 份");
             if (string.IsNullOrEmpty(parsed.Title) && string.IsNullOrEmpty(parsed.Drafter) && string.IsNullOrEmpty(parsed.ApplyNo))
                 AppendLog("[警告] 主要字段均为空，可能页面结构不匹配，请手工填写或联系开发优化解析规则。");
         }
@@ -355,6 +386,92 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             ParseBtn.IsEnabled = true;
             ParseProgress.Text = "";
         }
+    }
+
+    /// <summary>抓取『需求评估OA链接』对应的 OA 页面：解析『预估产能/产出』，并从审批日志中
+    /// 评估人所在行的处理意见里解析内部/外部人力；
+    /// 若未关联需求评估签报（录入的就是需求评估页面本身），则回退到当前页面。
+    /// 过程不逐行记日志，Note 为空表示一切正常，由 DescribeReqEval 统一输出一行</summary>
+    private async Task<(string Capacity, string Inner, string Outer, string Note)> FetchReqEvalInfoAsync(
+        OAParseResult parsed, string html, string baseURL, string? mainAuditHTML)
+    {
+        var evalLink = parsed.ReqEvalOALink.Trim();
+        var formHTML = html;
+        var pageBaseURL = baseURL;
+        var auditHTML = mainAuditHTML ?? "";
+        var note = "";
+
+        if (string.IsNullOrEmpty(evalLink))
+        {
+            note = "未关联评估签报，按当前页解析";
+        }
+        else
+        {
+            try
+            {
+                formHTML = await OAService.Shared.FetchHTMLAsync(evalLink);
+                if (DumpDebugHTML(formHTML, evalLink, "eval") != null) _snapshotCount++;
+                pageBaseURL = ExtractBaseURL(evalLink);
+                auditHTML = "";
+            }
+            catch (Exception ex)
+            {
+                return ("", "", "", $"抓取需求评估页面失败：{ex.Message}");
+            }
+        }
+
+        var capacity = OAParser.ExtractEstimatedCapacity(formHTML);
+
+        var evaluatorName = Evaluator.Trim();
+        if (string.IsNullOrEmpty(evaluatorName))
+            return (capacity, "", "", "评估人为空");
+
+        // 评估人的内/外部人力位于审批日志（流程轨迹）的处理意见列
+        if (string.IsNullOrEmpty(auditHTML))
+        {
+            var auditURL = BuildAuditNoteURL(formHTML, pageBaseURL);
+            if (auditURL != null)
+            {
+                try
+                {
+                    auditHTML = await OAService.Shared.FetchHTMLAsync(auditURL);
+                    if (DumpDebugHTML(auditHTML, auditURL, string.IsNullOrEmpty(evalLink) ? "audit" : "evalaudit") != null)
+                        _snapshotCount++;
+                }
+                catch (Exception ex)
+                {
+                    note = $"抓取审批日志失败：{ex.Message}";
+                }
+            }
+        }
+        if (string.IsNullOrEmpty(auditHTML))
+            return (capacity, "", "", string.IsNullOrEmpty(note) ? "未取得审批日志" : note);
+
+        var (inner, outer) = OAParser.ExtractManpowerByOperator(auditHTML, evaluatorName);
+        if (string.IsNullOrEmpty(inner) && string.IsNullOrEmpty(outer))
+            note = "评估人处理意见无人力数字";
+        return (capacity, inner, outer, note);
+    }
+
+    /// <summary>把需求评估抓取结果（预估产能/产出 + 评估人处理意见中的内/外部人力）汇成一行日志</summary>
+    private string DescribeReqEval((string Capacity, string Inner, string Outer, string Note) info)
+    {
+        var ev = Evaluator.Trim();
+        var line = $"需求评估：产能={(string.IsNullOrEmpty(info.Capacity) ? "未解析" : info.Capacity)}"
+            + $"；人力 内={(string.IsNullOrEmpty(info.Inner) ? "-" : info.Inner)}"
+            + $" 外={(string.IsNullOrEmpty(info.Outer) ? "-" : info.Outer)} 人/天"
+            + $"（评估人：{(string.IsNullOrEmpty(ev) ? "未填" : ev)}";
+        if (!string.IsNullOrEmpty(ParseReqEvalLink)) line += $"，fdId={ShortDocId(ParseReqEvalLink)}";
+        line += "）";
+        if (!string.IsNullOrEmpty(info.Note)) line += $" [提示] {info.Note}";
+        return line;
+    }
+
+    /// <summary>取 OA 链接里的 fdId 前 12 位作为日志短标识（完整链接见页面上的对应字段）</summary>
+    private static string ShortDocId(string url)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(url, @"fdId=([a-f0-9]{1,12})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : "?";
     }
 
     // MARK: - Create Action
@@ -389,7 +506,10 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
             Content = ParseContent,
             ApplyNo = ParseApplyNo,
             RemKeys = remKeys,
-            Attachments = _parsedAttachments
+            Attachments = _parsedAttachments,
+            ReqEvalOALink = ParseReqEvalLink.Trim(),
+            InnerManpower = ParseInnerManpower.Trim(),
+            ExternalManpower = ParseExternalManpower.Trim()
         };
 
         var picked = _attachmentDisplays
@@ -554,13 +674,14 @@ public partial class OACreateReqView : UserControl, INotifyPropertyChanged
     }
 
     /// <summary>保存 HTML 调试快照</summary>
-    private static string? DumpDebugHTML(string html, string link)
+    private static string? DumpDebugHTML(string html, string link, string kind = "")
     {
         try
         {
             var dir = Path.Combine(AppConfig.AppDataDir, "oa_debug");
             Directory.CreateDirectory(dir);
-            var fileName = $"oa_debug_{DateTime.Now:yyyyMMdd_HHmmss}.html";
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var fileName = string.IsNullOrEmpty(kind) ? $"oa_debug_{stamp}.html" : $"oa_debug_{kind}_{stamp}.html";
             var filePath = Path.Combine(dir, fileName);
             var withHeader = $"<!-- source: {link} -->\n" + html;
             File.WriteAllText(filePath, withHeader, System.Text.Encoding.UTF8);

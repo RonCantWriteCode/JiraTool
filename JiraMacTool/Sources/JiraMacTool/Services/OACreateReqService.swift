@@ -12,6 +12,15 @@ enum OACreateReqError: Error, LocalizedError {
     }
 }
 
+/// 日志缓冲：把多条同类短日志攒成一行，只在单个创建流程内使用
+final class LogLineBuffer: @unchecked Sendable {
+    private var items: [String] = []
+    func add(_ item: String) { items.append(item) }
+    var isEmpty: Bool { items.isEmpty }
+    func joined() -> String { items.joined(separator: "；") }
+    func clear() { items.removeAll() }
+}
+
 /// 使用参考 REQ 做模板，把 OA 页面解析结果转换为新 REQ
 actor OACreateReqService {
     static let shared = OACreateReqService()
@@ -56,8 +65,24 @@ actor OACreateReqService {
         fixedIsPricing: String,
         fixedLabels: String,
         fixedAssignee: String,
-        logger: @escaping @Sendable (String) -> Void
+        logger rawLogger: @escaping @Sendable (String) -> Void
     ) async throws -> String {
+
+        // 日志精简：连续的『[设置] xxx』行合并成一行输出，字段写入细节不再逐条刷屏；
+        // 其它级别（跳过/警告/失败）依旧单行直出，出现时先把缓冲的设置行冲出去。
+        let setPrefix = "[设置] "
+        let setBuffer = LogLineBuffer()
+        let logger: @Sendable (String) -> Void = { line in
+            if line.hasPrefix(setPrefix) {
+                setBuffer.add(String(line.dropFirst(setPrefix.count)))
+            } else {
+                if !setBuffer.isEmpty {
+                    rawLogger(setPrefix + setBuffer.joined())
+                    setBuffer.clear()
+                }
+                rawLogger(line)
+            }
+        }
 
         let templateKey = templateReqKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !templateKey.isEmpty else { throw OACreateReqError.templateNotFound }
@@ -108,7 +133,7 @@ actor OACreateReqService {
                         }
                     }
                 }
-                logger("[元数据] 已加载 \(fieldOptions.count) 个字段的选项数据，\(fieldSchemaTypes.count) 个字段的类型信息")
+                // 元数据加载成功不单独占一行：字段匹配异常时才需要这类诊断信息
             } else {
                 logger("[元数据] createmeta 返回空，将仅按 value 文本匹配")
             }
@@ -145,12 +170,12 @@ actor OACreateReqService {
                         sysResult["child"] = ["value": fixedSystemChild]
                     }
                 }
-                logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (id 匹配)")
+                logger("[设置] 系统名称（开发） = \(fixedSystemParent) > \(fixedSystemChild)")
             } else {
                 // 父级未匹配到元数据，仅设置文本值
                 sysResult["value"] = fixedSystemParent
                 if !fixedSystemChild.isEmpty { sysResult["child"] = ["value": fixedSystemChild] }
-                logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (仅文本值)")
+                logger("[设置] 系统名称（开发） = \(fixedSystemParent) > \(fixedSystemChild) (仅文本值)")
             }
         } else {
             // 无元数据，回退到克隆模板 + 覆盖文本值
@@ -163,7 +188,7 @@ actor OACreateReqService {
                 c["value"] = fixedSystemChild
                 sysResult["child"] = c
             }
-            logger("[设置] customfield_10125 = \(fixedSystemParent) > \(fixedSystemChild) (回退模板结构)")
+            logger("[设置] 系统名称（开发） = \(fixedSystemParent) > \(fixedSystemChild) (回退模板结构)")
         }
         newFields["customfield_10125"] = sysResult
 
@@ -240,7 +265,7 @@ actor OACreateReqService {
                 // 用户未录入，复制模板值
                 if let templateVal = fields[groupNameFieldId] {
                     newFields[groupNameFieldId] = cloneCascading(templateVal)
-                    logger("[设置] 科室小组(\(groupNameFieldId)) = 复制模板值")
+                    logger("[设置] 科室小组 = 复制模板值")
                 }
             } else {
                 // 用户已录入，替换 value
@@ -276,7 +301,7 @@ actor OACreateReqService {
         if !drafter.isEmpty {
             // 直接使用拟稿人原始中文姓名，不做任何转换
             newFields["customfield_10123"] = drafter
-            logger("[设置] 需求提出人(customfield_10123) = \(drafter)")
+            logger("[设置] 需求提出人(文本) = \(drafter)")
 
             // 同时走动态匹配以兼容其它字段名（若模板里字段名不叫"需求提出人"）
             applyUserFieldByName(
@@ -349,6 +374,28 @@ actor OACreateReqService {
             logger: logger
         )
 
+        // i-3) 内部人力 / 外部人力（人/天）：来自需求评估签报中评估人的处理意见
+        applyFieldByName(
+            newFields: &newFields,
+            templateFields: fields,
+            nameToId: nameToId,
+            candidateNames: ["内部人力(人/天)", "内部人力（人/天）", "内部人力", "预估内部人力"],
+            stringValue: parsed.innerManpower,
+            fieldOptions: fieldOptions,
+            fieldSchemaTypes: fieldSchemaTypes,
+            logger: logger
+        )
+        applyFieldByName(
+            newFields: &newFields,
+            templateFields: fields,
+            nameToId: nameToId,
+            candidateNames: ["外部人力(人/天)", "外部人力（人/天）", "外部人力", "预估外部人力"],
+            stringValue: parsed.externalManpower,
+            fieldOptions: fieldOptions,
+            fieldSchemaTypes: fieldSchemaTypes,
+            logger: logger
+        )
+
         // j) 标签
         let labels = fixedLabels
             .split(whereSeparator: { ",，; ；\n\t".contains($0) })
@@ -356,7 +403,7 @@ actor OACreateReqService {
             .filter { !$0.isEmpty }
         if !labels.isEmpty {
             newFields["labels"] = labels
-            logger("[设置] 标签 = \(labels)")
+            logger("[设置] 标签 = \(labels.joined(separator: ","))")
         }
 
         // 创建（带字段过滤重试机制）
@@ -367,10 +414,9 @@ actor OACreateReqService {
             newKey = try await jira.createIssue(project: "REQ", issueType: issueTypeId ?? "", fields: newFields)
         } catch {
             let errorMsg = error.localizedDescription
-            logger("[提示] 首次创建失败，尝试过滤不在创建屏幕上的字段...")
             if let badFields = parseBadFieldsFromError(errorMsg) {
                 removedFields = badFields
-                logger("[过滤] 移除不在创建屏幕上的字段: \(badFields.joined(separator: ", "))")
+                logger("[过滤] 首次创建失败，移除不在创建屏幕上的字段后重试: \(badFields.joined(separator: ", "))")
                 for field in badFields {
                     newFields.removeValue(forKey: field)
                 }
@@ -408,6 +454,7 @@ actor OACreateReqService {
         let oaBaseURL = extractBaseURL(from: oaLink)
         if !pickedAttachments.isEmpty {
             logger("下载并上传附件 \(pickedAttachments.count) 个 ...")
+            var uploaded = 0
             for att in pickedAttachments {
                 do {
                     let downloaded = try await OAService.shared.downloadAttachment(urlString: att.url)
@@ -417,34 +464,38 @@ actor OACreateReqService {
                         fileData: downloaded.data,
                         mimeType: downloaded.mimeType
                     )
-                    logger("  ✓ 已上传: \(downloaded.name)")
+                    uploaded += 1
                 } catch {
-                    logger("  ✗ 附件失败 [\(att.name)]: \(error.localizedDescription)")
+                    logger("[附件失败] \(att.name): \(error.localizedDescription)")
                     // 自动诊断：尝试所有可能的 URL 组合并保存报告
                     logger("  🔍 正在生成下载诊断报告 ...")
                     await OAService.shared.diagnoseDownload(attachment: att, baseURL: oaBaseURL, referer: oaLink)
                 }
             }
+            logger("[附件] 已上传 \(uploaded)/\(pickedAttachments.count)")
         }
 
         // 5) 关联 REM（已关联则跳过，关联关系读不到时不创建）
         if !parsed.remKeys.isEmpty {
-            logger("关联 REM \(parsed.remKeys.joined(separator: ",")) ...")
+            var created: [String] = []
+            var already: [String] = []
             for rem in parsed.remKeys {
                 do {
                     let outcome = try await jira.linkIssuesIfAbsent(from: newKey, to: rem, linkType: "关联")
                     switch outcome {
                     case .created:
-                        logger("  ✓ 已关联 \(rem)")
+                        created.append(rem)
                     case .alreadyLinked:
-                        logger("  ⏭ \(rem) 已关联，跳过")
+                        already.append(rem)
                     case .unverified:
-                        logger("  ⚠️ 无法确认 \(rem) 的已有关联，本次未关联，请手动检查")
+                        logger("[REM] 无法确认 \(rem) 的已有关联，本次未关联，请手动检查")
                     }
                 } catch {
-                    logger("  ✗ 关联失败 \(rem): \(error.localizedDescription)")
+                    logger("[REM] 关联失败 \(rem): \(error.localizedDescription)")
                 }
             }
+            if !created.isEmpty { logger("[REM] 已关联 \(created.joined(separator: ","))") }
+            if !already.isEmpty { logger("[REM] \(already.joined(separator: ",")) 已关联，未重复创建") }
         }
 
         return newKey
@@ -505,8 +556,7 @@ actor OACreateReqService {
         if let invalidFields = parseInvalidOptionFieldsFromError(errorMsg) {
             for field in invalidFields {
                 if let opts = fieldOptions[field] {
-                    let available = opts.compactMap { $0["value"] as? String }.joined(separator: ", ")
-                    logger("[跳过] \(field) 选项值无效，可用选项: [\(available)]")
+                    logger("[跳过] \(field) 选项值无效，可用选项: \(describeOptions(opts.compactMap { $0["value"] as? String }))")
                 } else {
                     logger("[跳过] \(field) 选项值无效，无元数据可用")
                 }
@@ -544,6 +594,9 @@ actor OACreateReqService {
         logger: @escaping (String) -> Void
     ) {
         guard !stringValue.isEmpty else { return }
+        let label = candidateNames[0]
+        // 设置成功类日志只留「字段名=值」，过长值（如 ISO 日期）截断，避免汇总行膨胀
+        let display = stringValue.count > 12 ? String(stringValue.prefix(10)) + "…" : stringValue
         guard let cfId = resolveCustomFieldId(nameToId: nameToId, candidates: candidateNames, logger: logger) else {
             logger("[跳过] 未在模板中找到字段：\(candidateNames.joined(separator: "/"))")
             return
@@ -568,19 +621,19 @@ actor OACreateReqService {
                                 if let id = childMatched["id"] as? String { c["id"] = id }
                                 if let v = childMatched["value"] as? String { c["value"] = v }
                                 result["child"] = c
-                                logger("[设置] \(cfId) = \(stringValue) > \(childVal) (id 匹配成功)")
+                                logger("[设置] \(label) = \(display) > \(childVal)")
                             } else {
                                 result["child"] = ["value": childVal]
-                                logger("[设置] \(cfId) = \(stringValue) (父级 id 匹配，子选项 '\(childVal)' 未匹配到 id)")
+                                logger("[跳过] \(label)(\(cfId)) 子选项 '\(childVal)' 未匹配到 id")
                             }
                         }
                     } else {
-                        logger("[设置] \(cfId) = \(stringValue) (id=\(matched["id"] as? String ?? ""))")
+                        logger("[设置] \(label) = \(display)")
                     }
                     newFields[cfId] = result
                 } else {
-                    let available = metaOptions.compactMap { $0["value"] as? String }.joined(separator: ", ")
-                    logger("[跳过] \(cfId) 元数据中未找到匹配 '\(stringValue)' 的选项，可用选项: [\(available)]")
+                    let available = describeOptions(metaOptions.compactMap { $0["value"] as? String })
+                    logger("[跳过] \(label)(\(cfId)) 元数据中未找到匹配 '\(stringValue)' 的选项，可用选项: \(available)")
                 }
             } else {
                 // 无元数据：仅发送 value
@@ -592,7 +645,7 @@ actor OACreateReqService {
                     out["child"] = c
                 }
                 newFields[cfId] = out
-                logger("[设置] \(cfId) = \(stringValue) (无元数据，按 value)")
+                logger("[设置] \(label) = \(display) (无元数据)")
             }
             return
         }
@@ -604,16 +657,29 @@ actor OACreateReqService {
                     if let id = matched["id"] as? String { item["id"] = id }
                     if let v = matched["value"] as? String { item["value"] = v }
                     newFields[cfId] = [item]
-                    logger("[设置] \(cfId) = [\(stringValue)] (id 匹配成功)")
+                    logger("[设置] \(label) = \(display)")
                     return
                 }
-                let available = metaOptions.compactMap { $0["value"] as? String }.joined(separator: ", ")
-                logger("[跳过] \(cfId) 元数据中未找到匹配 '\(stringValue)' 的选项，可用选项: [\(available)]")
+                let available = describeOptions(metaOptions.compactMap { $0["value"] as? String })
+                logger("[跳过] \(label)(\(cfId)) 元数据中未找到匹配 '\(stringValue)' 的选项，可用选项: \(available)")
                 return
             }
             let first: [String: Any] = ["value": stringValue]
             newFields[cfId] = [first]
-            logger("[设置] \(cfId) = [\(stringValue)] (无元数据，按 value)")
+            logger("[设置] \(label) = \(display) (无元数据)")
+            return
+        }
+        // 数字字段（Jira number 类型）：必须写数值，写字符串会被 Jira 报错
+        let isNumberField = fieldSchemaTypes[cfId] == "number"
+            || (templateVal != nil && (templateVal is Double || templateVal is Int) && !(templateVal is Bool))
+        if isNumberField {
+            let numText = stringValue.replacingOccurrences(of: ",", with: "")
+            if let numberValue = Double(numText) {
+                newFields[cfId] = numberValue
+                logger("[设置] \(label) = \(stringValue)")
+            } else {
+                logger("[跳过] \(label)(\(cfId)) 是数字字段，但值 '\(stringValue)' 不是数字")
+            }
             return
         }
         // 字符串字段
@@ -623,17 +689,23 @@ actor OACreateReqService {
                schemaType == "option" || schemaType == "cascadingSelect" {
                 // 选项/级联字段但模板无值，无法确定正确的 option id，跳过
                 if let opts = fieldOptions[cfId] {
-                    let available = opts.compactMap { $0["value"] as? String }.joined(separator: ", ")
-                    logger("[跳过] \(cfId) 是\(schemaType)类型字段但模板无值，无法设置 '\(stringValue)'，可用选项: [\(available)]")
+                    let available = describeOptions(opts.compactMap { $0["value"] as? String })
+                    logger("[跳过] \(label)(\(cfId)) 是\(schemaType)类型字段但模板无值，无法设置 '\(stringValue)'，可用选项: \(available)")
                 } else {
-                    logger("[跳过] \(cfId) 是\(schemaType)类型字段但模板无值，无法设置 '\(stringValue)'")
+                    logger("[跳过] \(label)(\(cfId)) 是\(schemaType)类型字段但模板无值，无法设置 '\(stringValue)'")
                 }
                 return
             }
             newFields[cfId] = stringValue
             return
         }
-        logger("[跳过] 字段 \(cfId) 模板结构未知，忽略: \(candidateNames.joined(separator: "/"))")
+        logger("[跳过] \(label)(\(cfId)) 模板结构未知，忽略")
+    }
+
+    /// 选项列表的日志展示：最多 8 项，超出时只给总数，避免一行日志过长
+    private func describeOptions(_ values: [String]) -> String {
+        let shown = values.prefix(8).joined(separator: ", ")
+        return values.count > 8 ? "[\(shown), …共 \(values.count) 项]" : "[\(shown)]"
     }
 
     /// 在 allowedValues 中按 value 文本查找匹配的选项
@@ -681,28 +753,26 @@ actor OACreateReqService {
         // 模板字段是字符串（"登录名"）
         if templateVal is String {
             newFields[cfId] = userName
-            return
-        }
-        // 模板字段是数组（多用户）
-        if templateVal is [[String: Any]] {
+        } else if templateVal is [[String: Any]] {
+            // 模板字段是数组（多用户）
             newFields[cfId] = [["name": userName]]
-            return
+        } else {
+            // 默认当作单用户 {name: ...}
+            newFields[cfId] = ["name": userName]
         }
-        // 默认当作单用户 {name: ...}
-        newFields[cfId] = ["name": userName]
+        logger("[设置] \(candidateNames[0])(用户) = \(userName)")
     }
 
+    /// 按中文字段名反查 customfield_id（匹配细节不记日志，由调用方的 [设置]/[跳过] 行体现）
     private func resolveCustomFieldId(nameToId: [String: String], candidates: [String], logger: ((String) -> Void)? = nil) -> String? {
         for c in candidates {
             if let id = nameToId[c] {
-                logger?("[字段匹配] '\(c)' → \(id) (精确匹配)")
                 return id
             }
         }
         // 模糊匹配：包含候选名的 key
         for (name, id) in nameToId {
             for c in candidates where name.contains(c) {
-                logger?("[字段匹配] '\(c)' → \(id) (模糊匹配, 字段名='\(name)')")
                 return id
             }
         }

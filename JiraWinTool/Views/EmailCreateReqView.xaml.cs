@@ -72,6 +72,13 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty ParseBranchCompanyProperty =
         DependencyProperty.Register(nameof(ParseBranchCompany), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
+    // 内/外部人力（人/天）：邮件无解析逻辑，仅手工填写
+    public static readonly DependencyProperty ParseInnerManpowerProperty =
+        DependencyProperty.Register(nameof(ParseInnerManpower), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
+
+    public static readonly DependencyProperty ParseExternalManpowerProperty =
+        DependencyProperty.Register(nameof(ParseExternalManpower), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
+
     public static readonly DependencyProperty ParseContentProperty =
         DependencyProperty.Register(nameof(ParseContent), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
@@ -139,6 +146,8 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public string ParseSenderEmail { get => (string)GetValue(ParseSenderEmailProperty); set => SetValue(ParseSenderEmailProperty, value); }
     public string ParseDraftDept { get => (string)GetValue(ParseDraftDeptProperty); set => SetValue(ParseDraftDeptProperty, value); }
     public string ParseBranchCompany { get => (string)GetValue(ParseBranchCompanyProperty); set => SetValue(ParseBranchCompanyProperty, value); }
+    public string ParseInnerManpower { get => (string)GetValue(ParseInnerManpowerProperty); set => SetValue(ParseInnerManpowerProperty, value); }
+    public string ParseExternalManpower { get => (string)GetValue(ParseExternalManpowerProperty); set => SetValue(ParseExternalManpowerProperty, value); }
     public string ParseContent { get => (string)GetValue(ParseContentProperty); set => SetValue(ParseContentProperty, value); }
     public string FixedSystemParent { get => (string)GetValue(FixedSystemParentProperty); set => SetValue(FixedSystemParentProperty, value); }
     public string FixedSystemChild { get => (string)GetValue(FixedSystemChildProperty); set => SetValue(FixedSystemChildProperty, value); }
@@ -288,6 +297,8 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             ParseSender = parsed.FromName;
             ParseSenderEmail = parsed.From;
             ParseContent = parsed.Body;
+            ParseInnerManpower = "";
+            ParseExternalManpower = "";
 
             // 更新附件列表
             _attachmentDisplays.Clear();
@@ -342,7 +353,9 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             Content = ParseContent,
             ApplyNo = "",
             RemKeys = new List<string>(),
-            Attachments = new List<OAAttachment>()
+            Attachments = new List<OAAttachment>(),
+            InnerManpower = ParseInnerManpower.Trim(),
+            ExternalManpower = ParseExternalManpower.Trim()
         };
 
         // 获取勾选的邮件附件
@@ -376,19 +389,21 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             if (pickedAttachments.Count > 0)
             {
                 AppendLog($"上传邮件附件 {pickedAttachments.Count} 个 ...");
+                var uploaded = 0;
                 foreach (var att in pickedAttachments)
                 {
                     try
                     {
                         await JiraService.Shared.UploadAttachmentAsync(
                             key, att.Name, att.Data, att.MimeType);
-                        AppendLog($"  ✓ 已上传: {att.Name}");
+                        uploaded++;
                     }
                     catch (Exception ex)
                     {
-                        AppendLog($"  ✗ 附件失败 [{att.Name}]: {ex.Message}");
+                        AppendLog($"[附件失败] {att.Name}: {ex.Message}");
                     }
                 }
+                AppendLog($"[附件] 已上传 {uploaded}/{pickedAttachments.Count}");
             }
 
             // 自动打开浏览器

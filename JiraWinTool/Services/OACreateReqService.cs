@@ -53,8 +53,29 @@ public class OACreateReqService
         string fixedIsPricing,
         string fixedLabels,
         string fixedAssignee,
-        Action<string> logger)
+        Action<string> rawLogger)
     {
+        // 日志精简：连续的『[设置] xxx』行合并成一行输出，字段写入细节不再逐条刷屏；
+        // 其它级别（跳过/警告/失败）依旧单行直出，出现时先把缓冲的设置行冲出去。
+        const string SetPrefix = "[设置] ";
+        var didSet = new List<string>();
+        Action<string> logger = line =>
+        {
+            if (line.StartsWith(SetPrefix, StringComparison.Ordinal))
+            {
+                didSet.Add(line.Substring(SetPrefix.Length));
+            }
+            else
+            {
+                if (didSet.Count > 0)
+                {
+                    rawLogger(SetPrefix + string.Join("；", didSet));
+                    didSet.Clear();
+                }
+                rawLogger(line);
+            }
+        };
+
         var templateKey = templateReqKey.Trim();
         if (string.IsNullOrEmpty(templateKey))
             throw new InvalidOperationException("未指定模板 REQ Key");
@@ -102,7 +123,7 @@ public class OACreateReqService
                     if (!string.IsNullOrEmpty(schemaType))
                         fieldSchemaTypes[prop.Name] = schemaType;
                 }
-                logger($"[元数据] 已加载 {fieldOptions.Count} 个字段的选项数据，{fieldSchemaTypes.Count} 个字段的类型信息");
+                // 元数据加载成功不单独占一行：字段匹配异常时才需要这类诊断信息
             }
             else
             {
@@ -150,7 +171,7 @@ public class OACreateReqService
                         sysResult["child"] = new JObject { ["value"] = fixedSystemChild };
                     }
                 }
-                logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (id 匹配)");
+                logger($"[设置] 系统名称（开发） = {fixedSystemParent} > {fixedSystemChild}");
             }
             else
             {
@@ -158,7 +179,7 @@ public class OACreateReqService
                 sysResult["value"] = fixedSystemParent;
                 if (!string.IsNullOrEmpty(fixedSystemChild))
                     sysResult["child"] = new JObject { ["value"] = fixedSystemChild };
-                logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (仅文本值)");
+                logger($"[设置] 系统名称（开发） = {fixedSystemParent} > {fixedSystemChild} (仅文本值)");
             }
         }
         else
@@ -173,7 +194,7 @@ public class OACreateReqService
                 c["value"] = fixedSystemChild;
                 sysResult["child"] = c;
             }
-            logger($"[设置] customfield_10125 = {fixedSystemParent} > {fixedSystemChild} (回退模板结构)");
+            logger($"[设置] 系统名称（开发） = {fixedSystemParent} > {fixedSystemChild} (回退模板结构)");
         }
         newFields["customfield_10125"] = sysResult;
 
@@ -225,7 +246,7 @@ public class OACreateReqService
                 if (fields[groupNameFieldId] != null)
                 {
                     newFields[groupNameFieldId] = CloneCascading(fields[groupNameFieldId]);
-                    logger($"[设置] 科室小组({groupNameFieldId}) = 复制模板值");
+                    logger("[设置] 科室小组 = 复制模板值");
                 }
             }
             else
@@ -251,7 +272,7 @@ public class OACreateReqService
         if (!string.IsNullOrEmpty(drafter))
         {
             newFields["customfield_10123"] = drafter;
-            logger($"[设置] 需求提出人(customfield_10123) = {drafter}");
+            logger($"[设置] 需求提出人(文本) = {drafter}");
 
             ApplyUserFieldByName(newFields, fields, nameToId,
                 new[] { "需求提出人", "提出人", "需求提交人" },
@@ -287,6 +308,14 @@ public class OACreateReqService
             new[] { "是否计价", "计价" },
             fixedIsPricing, fieldOptions, fieldSchemaTypes, logger);
 
+        // i-3) 内部人力 / 外部人力（人/天）：来自需求评估签报中评估人的处理意见
+        ApplyFieldByName(newFields, fields, nameToId,
+            new[] { "内部人力(人/天)", "内部人力（人/天）", "内部人力", "预估内部人力" },
+            parsed.InnerManpower, fieldOptions, fieldSchemaTypes, logger);
+        ApplyFieldByName(newFields, fields, nameToId,
+            new[] { "外部人力(人/天)", "外部人力（人/天）", "外部人力", "预估外部人力" },
+            parsed.ExternalManpower, fieldOptions, fieldSchemaTypes, logger);
+
         // j) 标签
         var labels = fixedLabels
             .Split(new[] { ',', '，', ';', '；', '\n', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries)
@@ -296,7 +325,7 @@ public class OACreateReqService
         if (labels.Count > 0)
         {
             newFields["labels"] = new JArray(labels);
-            logger($"[设置] 标签 = {string.Join(", ", labels)}");
+            logger($"[设置] 标签 = {string.Join(",", labels)}");
         }
 
         // 创建（带字段过滤重试机制）
@@ -310,12 +339,11 @@ public class OACreateReqService
         catch (Exception ex)
         {
             var errorMsg = ex.Message;
-            logger("[提示] 首次创建失败，尝试过滤不在创建屏幕上的字段...");
             var badFields = ParseBadFieldsFromError(errorMsg);
             if (badFields != null && badFields.Count > 0)
             {
                 removedFields = badFields;
-                logger($"[过滤] 移除不在创建屏幕上的字段: {string.Join(", ", badFields)}");
+                logger($"[过滤] 首次创建失败，移除不在创建屏幕上的字段后重试: {string.Join(", ", badFields)}");
                 foreach (var field in badFields)
                     newFields.Remove(field);
                 try
@@ -363,6 +391,7 @@ public class OACreateReqService
         if (pickedAttachments.Count > 0)
         {
             logger($"下载并上传附件 {pickedAttachments.Count} 个 ...");
+            var uploaded = 0;
             foreach (var att in pickedAttachments)
             {
                 try
@@ -373,38 +402,48 @@ public class OACreateReqService
                         string.IsNullOrEmpty(downloaded.Name) ? att.Name : downloaded.Name,
                         downloaded.Data,
                         downloaded.MimeType);
-                    logger($"  ✓ 已上传: {downloaded.Name}");
+                    uploaded++;
                 }
                 catch (Exception ex)
                 {
-                    logger($"  ✗ 附件失败 [{att.Name}]: {ex.Message}");
+                    logger($"[附件失败] {att.Name}: {ex.Message}");
                     logger("  🔍 正在生成下载诊断报告 ...");
                     await OAService.Shared.DiagnoseDownloadAsync(att, oaBaseURL, oaLink);
                 }
             }
+            logger($"[附件] 已上传 {uploaded}/{pickedAttachments.Count}");
         }
 
         // 5) 关联 REM（已关联则跳过，关联关系读不到时不创建）
         if (parsed.RemKeys.Count > 0)
         {
-            logger($"关联 REM {string.Join(",", parsed.RemKeys)} ...");
+            var created = new List<string>();
+            var already = new List<string>();
             foreach (var rem in parsed.RemKeys)
             {
                 try
                 {
                     var outcome = await _jira.LinkIssuesIfAbsentAsync(newKey, rem, "关联");
-                    logger(outcome switch
+                    switch (outcome)
                     {
-                        JiraService.LinkOutcome.Created => $"  ✓ 已关联 {rem}",
-                        JiraService.LinkOutcome.AlreadyLinked => $"  ⏭ {rem} 已关联，跳过",
-                        _ => $"  ⚠️ 无法确认 {rem} 的已有关联，本次未关联，请手动检查"
-                    });
+                        case JiraService.LinkOutcome.Created:
+                            created.Add(rem);
+                            break;
+                        case JiraService.LinkOutcome.AlreadyLinked:
+                            already.Add(rem);
+                            break;
+                        default:
+                            logger($"[REM] 无法确认 {rem} 的已有关联，本次未关联，请手动检查");
+                            break;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    logger($"  ✗ 关联失败 {rem}: {ex.Message}");
+                    logger($"[REM] 关联失败 {rem}: {ex.Message}");
                 }
             }
+            if (created.Count > 0) logger($"[REM] 已关联 {string.Join(",", created)}");
+            if (already.Count > 0) logger($"[REM] {string.Join(",", already)} 已关联，未重复创建");
         }
 
         return newKey;
@@ -465,6 +504,9 @@ public class OACreateReqService
         Action<string> logger)
     {
         if (string.IsNullOrEmpty(stringValue)) return;
+        var label = candidateNames[0];
+        // 设置成功类日志只留「字段名=值」，过长值（如 ISO 日期）截断，避免汇总行膨胀
+        var display = stringValue.Length > 12 ? stringValue.Substring(0, 10) + "…" : stringValue;
         var cfId = ResolveCustomFieldId(nameToId, candidateNames, logger);
         if (cfId == null)
         {
@@ -500,30 +542,27 @@ public class OACreateReqService
                                     var c = new JObject { ["id"] = childMatched["id"] };
                                     if (childMatched["value"] != null) c["value"] = childMatched["value"];
                                     result["child"] = c;
-                                    logger($"[设置] {cfId} = {stringValue} > {childVal} (id 匹配成功)");
+                                    logger($"[设置] {label} = {display} > {childVal}");
                                 }
                                 else
                                 {
                                     var c = new JObject { ["value"] = childVal };
                                     result["child"] = c;
-                                    logger($"[设置] {cfId} = {stringValue} (父级 id 匹配，子选项 '{childVal}' 未匹配到 id)");
+                                    logger($"[跳过] {label}({cfId}) 子选项 '{childVal}' 未匹配到 id");
                                 }
                             }
                         }
                     }
                     else
                     {
-                        logger($"[设置] {cfId} = {stringValue} (id={matched["id"]?.Value<string>()})");
+                        logger($"[设置] {label} = {display}");
                     }
                     newFields[cfId] = result;
                 }
                 else
                 {
                     // 元数据有但找不到匹配选项：打印可用选项并跳过
-                    var available = string.Join(", ", metaOptions
-                        .Select(o => o["value"]?.Value<string>() ?? "?")
-                        .Where(v => v != "?"));
-                    logger($"[跳过] {cfId} 元数据中未找到匹配 '{stringValue}' 的选项，可用选项: [{available}]");
+                    logger($"[跳过] {label}({cfId}) 元数据中未找到匹配 '{stringValue}' 的选项，可用选项: {DescribeOptions(metaOptions)}");
                 }
             }
             else
@@ -537,7 +576,7 @@ public class OACreateReqService
                     result["child"] = c;
                 }
                 newFields[cfId] = result;
-                logger($"[设置] {cfId} = {stringValue} (无元数据，按 value)");
+                logger($"[设置] {label} = {display} (无元数据)");
             }
             return;
         }
@@ -553,18 +592,33 @@ public class OACreateReqService
                     var item = new JObject { ["id"] = matched["id"] };
                     if (matched["value"] != null) item["value"] = matched["value"];
                     newFields[cfId] = new JArray(item);
-                    logger($"[设置] {cfId} = [{stringValue}] (id 匹配成功)");
+                    logger($"[设置] {label} = {display}");
                     return;
                 }
-                var available = string.Join(", ", metaOptions
-                    .Select(o => o["value"]?.Value<string>() ?? "?")
-                    .Where(v => v != "?"));
-                logger($"[跳过] {cfId} 元数据中未找到匹配 '{stringValue}' 的选项，可用选项: [{available}]");
+                logger($"[跳过] {label}({cfId}) 元数据中未找到匹配 '{stringValue}' 的选项，可用选项: {DescribeOptions(metaOptions)}");
                 return;
             }
             var first = new JObject { ["value"] = stringValue };
             newFields[cfId] = new JArray(first);
-            logger($"[设置] {cfId} = [{stringValue}] (无元数据，按 value)");
+            logger($"[设置] {label} = {display} (无元数据)");
+            return;
+        }
+        // 数字字段（Jira number 类型）：必须写数值，写字符串会被 Jira 报错
+        var isNumberField = fieldSchemaTypes.GetValueOrDefault(cfId) == "number"
+            || (templateVal is JValue jv && (jv.Type == JTokenType.Integer || jv.Type == JTokenType.Float));
+        if (isNumberField)
+        {
+            var numText = stringValue.Replace(",", "");
+            if (double.TryParse(numText, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var num))
+            {
+                newFields[cfId] = num;
+                logger($"[设置] {label} = {stringValue}");
+            }
+            else
+            {
+                logger($"[跳过] {label}({cfId}) 是数字字段，但值 '{stringValue}' 不是数字");
+            }
             return;
         }
         // 字符串字段或 null
@@ -577,21 +631,29 @@ public class OACreateReqService
                 // 选项/级联字段但模板无值，无法确定正确的 option id，跳过
                 if (fieldOptions.TryGetValue(cfId, out var opts))
                 {
-                    var available = string.Join(", ", opts
-                        .Select(o => o["value"]?.Value<string>() ?? "?")
-                        .Where(v => v != "?"));
-                    logger($"[跳过] {cfId} 是{schemaType}类型字段但模板无值，无法设置 '{stringValue}'，可用选项: [{available}]");
+                    logger($"[跳过] {label}({cfId}) 是{schemaType}类型字段但模板无值，无法设置 '{stringValue}'，可用选项: {DescribeOptions(opts)}");
                 }
                 else
                 {
-                    logger($"[跳过] {cfId} 是{schemaType}类型字段但模板无值，无法设置 '{stringValue}'");
+                    logger($"[跳过] {label}({cfId}) 是{schemaType}类型字段但模板无值，无法设置 '{stringValue}'");
                 }
                 return;
             }
             newFields[cfId] = stringValue;
             return;
         }
-        logger($"[跳过] 字段 {cfId} 模板结构未知，忽略: {string.Join("/", candidateNames)}");
+        logger($"[跳过] {label}({cfId}) 模板结构未知，忽略");
+    }
+
+    /// <summary>选项列表的日志展示：最多 8 项，超出时只给总数，避免一行日志过长</summary>
+    private static string DescribeOptions(JArray allowedValues)
+    {
+        var values = allowedValues
+            .Select(o => o["value"]?.Value<string>() ?? "?")
+            .Where(v => v != "?")
+            .ToList();
+        var shown = string.Join(", ", values.Take(8));
+        return values.Count > 8 ? $"[{shown}, …共 {values.Count} 项]" : $"[{shown}]";
     }
 
     /// <summary>在 allowedValues 中按 value 文本查找匹配的选项</summary>
@@ -649,24 +711,26 @@ public class OACreateReqService
         if (templateVal?.Type == JTokenType.String)
         {
             newFields[cfId] = userName;
-            return;
         }
-        if (templateVal is JArray)
+        else if (templateVal is JArray)
         {
             newFields[cfId] = new JArray(new JObject { ["name"] = userName });
-            return;
         }
-        // 默认当作单用户 {name: ...}
-        newFields[cfId] = new JObject { ["name"] = userName };
+        else
+        {
+            // 默认当作单用户 {name: ...}
+            newFields[cfId] = new JObject { ["name"] = userName };
+        }
+        logger($"[设置] {candidateNames[0]}(用户) = {userName}");
     }
 
+    /// <summary>按中文字段名反查 customfield_id（匹配细节不记日志，由调用方的 [设置]/[跳过] 行体现）</summary>
     private static string? ResolveCustomFieldId(Dictionary<string, string> nameToId, string[] candidates, Action<string>? logger = null)
     {
         foreach (var c in candidates)
         {
             if (nameToId.TryGetValue(c, out var id))
             {
-                logger?.Invoke($"[字段匹配] '{c}' → {id} (精确匹配)");
                 return id;
             }
         }
@@ -677,7 +741,6 @@ public class OACreateReqService
             {
                 if (name.Contains(c))
                 {
-                    logger?.Invoke($"[字段匹配] '{c}' → {id} (模糊匹配, 字段名='{name}')");
                     return id;
                 }
             }
@@ -715,15 +778,7 @@ public class OACreateReqService
                 // 打印该字段的可用选项
                 if (fieldOptions.TryGetValue(field, out var opts))
                 {
-                    var values = new List<string>();
-                    foreach (var o in opts)
-                    {
-                        var v = o["value"]?.Value<string>();
-                        if (!string.IsNullOrEmpty(v))
-                            values.Add(v);
-                    }
-                    var available = string.Join(", ", values);
-                    logger($"[跳过] {field} 选项值无效，可用选项: [{available}]");
+                    logger($"[跳过] {field} 选项值无效，可用选项: {DescribeOptions(opts)}");
                 }
                 else
                 {
