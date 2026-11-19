@@ -106,6 +106,7 @@ public partial class MainWindow : Window
         "docGen" => new Views.DocGenView(),
         "oaCreateReq" => new Views.OACreateReqView(),
         "emailCreateReq" => new Views.EmailCreateReqView(),
+        "dcCreate" => new Views.DcCreateView(),
         "oaProcessComplete" => new Views.OAProcessCompleteView(),
         "cfg:jira" => new Views.JiraConfigView(),
         "cfg:sync" => new Views.SyncConfigView(),

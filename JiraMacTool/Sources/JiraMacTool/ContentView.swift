@@ -94,6 +94,7 @@ enum InfrequentSubItem: String, CaseIterable, Identifiable {
 enum SidebarItem: String, CaseIterable, Identifiable {
     case oaCreateReq = "OA创建REQ"
     case emailCreateReq = "邮件创建REQ"
+    case dcCreate = "创建DC"
     case oaProcessComplete = "OA流程完成"
     case publish = "创建发布"
     case version = "版本管理"
@@ -109,6 +110,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .favorite: return "star"
         case .oaCreateReq: return "link.badge.plus"
         case .emailCreateReq: return "envelope.badge"
+        case .dcCreate: return "folder.badge.plus"
         case .oaProcessComplete: return "checkmark.circle"
         case .packageDMG: return "shippingbox"
         }
@@ -225,6 +227,8 @@ struct ContentView: View {
                 OACreateReqView()
             case .emailCreateReq:
                 EmailCreateReqView()
+            case .dcCreate:
+                DcCreateView()
             case .oaProcessComplete:
                 OAProcessCompleteView()
             case .packageDMG:

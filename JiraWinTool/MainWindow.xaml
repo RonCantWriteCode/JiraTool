@@ -33,6 +33,7 @@
 
                     <TreeViewItem Header="OA创建REQ" Tag="oaCreateReq"/>
                     <TreeViewItem Header="邮件创建REQ" Tag="emailCreateReq"/>
+                    <TreeViewItem Header="创建DC" Tag="dcCreate"/>
                     <TreeViewItem Header="OA流程完成" Tag="oaProcessComplete"/>
                     <TreeViewItem Header="创建发布" Tag="publish"/>
                     <TreeViewItem Header="版本管理" Tag="version"/>
