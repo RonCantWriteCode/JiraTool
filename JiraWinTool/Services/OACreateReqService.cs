@@ -202,9 +202,28 @@ public class OACreateReqService
         if (!string.IsNullOrEmpty(parsed.Content))
             newFields["customfield_12105"] = parsed.Content;
 
-        // 签报号 / 签报链接
-        newFields["customfield_10115"] = parsed.ApplyNo;
-        newFields["customfield_13252"] = oaLink;
+        // 签报号 (customfield_10115)：REQ『签报号』为必填项，留空则跳过写入并告警
+        var applyNo = (parsed.ApplyNo ?? "").Trim();
+        if (!string.IsNullOrEmpty(applyNo))
+        {
+            newFields["customfield_10115"] = applyNo;
+            logger($"[设置] 签报号 = {applyNo}");
+        }
+        else
+        {
+            logger("[警告] 签报号为空，REQ『签报号』为必填项，创建可能失败");
+        }
+
+        // 签报链接 (customfield_13252)：URL 字段只接受合法 http/https，空值或非法（如 mailto:）跳过
+        if (IsValidHttpUrl(oaLink))
+        {
+            newFields["customfield_13252"] = oaLink;
+            logger("[设置] 签报链接 = 已写入");
+        }
+        else if (!string.IsNullOrEmpty((oaLink ?? "").Trim()))
+        {
+            logger("[跳过] 签报链接不是合法 http/https URL，未写入");
+        }
 
         // 经办人 = 用户指定的值（优先使用可编辑字段，默认登录账号）
         var assignee = !string.IsNullOrEmpty(fixedAssignee) ? fixedAssignee : AppConfig.Shared.JiraUser;
@@ -885,5 +904,14 @@ public class OACreateReqService
         {
             return link;
         }
+    }
+
+    /// <summary>判断是否为 Jira URL 字段可接受的合法 http/https 链接（mailto: 等其它协议返回 false）</summary>
+    private static bool IsValidHttpUrl(string? link)
+    {
+        if (string.IsNullOrWhiteSpace(link)) return false;
+        if (!Uri.TryCreate(link.Trim(), UriKind.Absolute, out var uri)) return false;
+        return (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+               && !string.IsNullOrEmpty(uri.Host);
     }
 }

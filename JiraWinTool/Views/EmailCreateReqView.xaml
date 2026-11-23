@@ -90,6 +90,10 @@
                         Placeholder="如『6』，手工填写后同步写入 REQ"
                         Text="{Binding ParseExternalManpower, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                         LabelWidth="100"/>
+                    <controls:LabeledField Label="签报号"
+                        Placeholder="必填，如『OA2026xxxx』，写入 REQ 签报号"
+                        Text="{Binding ParseApplyNo, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="100"/>
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="100"/>

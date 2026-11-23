@@ -79,6 +79,10 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty ParseExternalManpowerProperty =
         DependencyProperty.Register(nameof(ParseExternalManpower), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
+    // 签报号：邮件无 OA 申请单编号，默认为『邮件』（REQ 必填项）
+    public static readonly DependencyProperty ParseApplyNoProperty =
+        DependencyProperty.Register(nameof(ParseApplyNo), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata("邮件"));
+
     public static readonly DependencyProperty ParseContentProperty =
         DependencyProperty.Register(nameof(ParseContent), typeof(string), typeof(EmailCreateReqView), new PropertyMetadata(""));
 
@@ -148,6 +152,7 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
     public string ParseBranchCompany { get => (string)GetValue(ParseBranchCompanyProperty); set => SetValue(ParseBranchCompanyProperty, value); }
     public string ParseInnerManpower { get => (string)GetValue(ParseInnerManpowerProperty); set => SetValue(ParseInnerManpowerProperty, value); }
     public string ParseExternalManpower { get => (string)GetValue(ParseExternalManpowerProperty); set => SetValue(ParseExternalManpowerProperty, value); }
+    public string ParseApplyNo { get => (string)GetValue(ParseApplyNoProperty); set => SetValue(ParseApplyNoProperty, value); }
     public string ParseContent { get => (string)GetValue(ParseContentProperty); set => SetValue(ParseContentProperty, value); }
     public string FixedSystemParent { get => (string)GetValue(FixedSystemParentProperty); set => SetValue(FixedSystemParentProperty, value); }
     public string FixedSystemChild { get => (string)GetValue(FixedSystemChildProperty); set => SetValue(FixedSystemChildProperty, value); }
@@ -299,6 +304,7 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             ParseContent = parsed.Body;
             ParseInnerManpower = "";
             ParseExternalManpower = "";
+            ParseApplyNo = "邮件";
 
             // 更新附件列表
             _attachmentDisplays.Clear();
@@ -351,7 +357,7 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             DraftDept = "",
             BranchCompany = ParseBranchCompany,
             Content = ParseContent,
-            ApplyNo = "",
+            ApplyNo = ParseApplyNo.Trim(),
             RemKeys = new List<string>(),
             Attachments = new List<OAAttachment>(),
             InnerManpower = ParseInnerManpower.Trim(),
@@ -364,8 +370,8 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
             .Select(a => a.Attachment)
             .ToList();
 
-        // 签报链接使用发件人邮箱作为标识
-        var oaLink = $"mailto:{ParseSenderEmail}";
+        // 邮件无 OA 签报链接，传空：服务层会跳过非合法 http/https 的 URL 字段
+        var oaLink = "";
 
         try
         {

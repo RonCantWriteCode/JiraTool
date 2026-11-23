@@ -28,6 +28,8 @@ struct EmailCreateReqView: View {
     /// 内部/外部人力（人/天）：邮件无解析逻辑，仅手工填写
     @State private var innerManpower: String = ""
     @State private var externalManpower: String = ""
+    /// 签报号：邮件无 OA 申请单编号，默认为『邮件』（REQ 必填项）
+    @State private var applyNo: String = "邮件"
     @State private var content: String = ""
     @State private var attachments: [EmailAttachmentInfo] = []
     @State private var attachmentSelection: [UUID: Bool] = [:]
@@ -98,6 +100,7 @@ struct EmailCreateReqView: View {
                     LabeledField(label: "分公司", placeholder: "如『总公司』，邮件中无法自动解析", text: $branchCompany)
                     LabeledField(label: "内部人力(人/天)", placeholder: "如『3.1』，手工填写后同步写入 REQ", text: $innerManpower, labelWidth: 105)
                     LabeledField(label: "外部人力(人/天)", placeholder: "如『6』，手工填写后同步写入 REQ", text: $externalManpower, labelWidth: 105)
+                    LabeledField(label: "签报号", placeholder: "必填，如『0A2026xxxx』，写入 REQ 签报号", text: $applyNo, labelWidth: 105)
 
                     HStack(alignment: .top, spacing: 8) {
                         Text("邮件正文")
@@ -292,6 +295,7 @@ struct EmailCreateReqView: View {
             content = parsed.body
             innerManpower = ""
             externalManpower = ""
+            applyNo = "邮件"
             attachments = parsed.attachments
             attachmentSelection = Dictionary(uniqueKeysWithValues: parsed.attachments.map { att in
                 (att.id, true)
@@ -328,7 +332,7 @@ struct EmailCreateReqView: View {
             leadDept: "",
             branchCompany: branchCompany,
             content: content,
-            applyNo: "",
+            applyNo: applyNo.trimmingCharacters(in: .whitespacesAndNewlines),
             remKeys: [],
             attachments: [],
             innerManpower: innerManpower.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -338,8 +342,8 @@ struct EmailCreateReqView: View {
         // 获取勾选的附件
         let pickedAttachments = attachments.filter { attachmentSelection[$0.id] ?? true }
 
-        // 签报链接使用发件人邮箱作为标识
-        let oaLink = "mailto:\(senderEmail)"
+        // 邮件无 OA 签报链接，传空：服务层会跳过非合法 http/https 的 URL 字段
+        let oaLink = ""
 
         Task {
             defer { Task { @MainActor in isCreating = false } }
