@@ -412,6 +412,26 @@ public partial class EmailCreateReqView : UserControl, INotifyPropertyChanged
                 AppendLog($"[附件] 已上传 {uploaded}/{pickedAttachments.Count}");
             }
 
+            // 上传邮件原文件（.eml）本身作为附件
+            var emlPath = EmlFilePath.Trim();
+            if (!string.IsNullOrEmpty(emlPath))
+            {
+                var emlName = System.IO.Path.GetFileName(emlPath);
+                try
+                {
+                    var emlData = System.IO.File.ReadAllBytes(emlPath);
+                    var didUpload = await JiraService.Shared.UploadAttachmentIfAbsentAsync(
+                        key, emlName, emlData, "message/rfc822");
+                    AppendLog(didUpload
+                        ? $"[附件] 邮件原文件已上传：{emlName}"
+                        : $"[附件] 邮件原文件已存在同名同大小，跳过：{emlName}");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"[附件失败] 邮件原文件 {emlName}: {ex.Message}");
+                }
+            }
+
             // 自动打开浏览器
             OpenCreatedIssue();
         }

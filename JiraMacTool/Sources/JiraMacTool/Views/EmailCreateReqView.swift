@@ -395,6 +395,27 @@ struct EmailCreateReqView: View {
                     appendLog("[附件] 已上传 \(uploaded)/\(pickedAttachments.count)")
                 }
 
+                // 上传邮件原文件（.eml）本身作为附件
+                let emlPath = emlFilePath.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !emlPath.isEmpty {
+                    let emlURL = URL(fileURLWithPath: emlPath)
+                    let emlName = emlURL.lastPathComponent
+                    do {
+                        let emlData = try Data(contentsOf: emlURL)
+                        let didUpload = try await JiraService.shared.uploadAttachmentIfAbsent(
+                            issueKey: key,
+                            fileName: emlName,
+                            fileData: emlData,
+                            mimeType: "message/rfc822"
+                        )
+                        appendLog(didUpload
+                            ? "[附件] 邮件原文件已上传：\(emlName)"
+                            : "[附件] 邮件原文件已存在同名同大小，跳过：\(emlName)")
+                    } catch {
+                        appendLog("[附件失败] 邮件原文件 \(emlName)：\(error.localizedDescription)")
+                    }
+                }
+
                 await MainActor.run {
                     self.openCreatedIssue()
                 }
