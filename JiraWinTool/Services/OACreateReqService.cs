@@ -218,12 +218,17 @@ public class OACreateReqService
             new[] { "需求提交部门", "提交部门", "需求部门", "申请部门" },
             draftDeptKeyword, fieldOptions, fieldSchemaTypes, logger);
 
-        // a-2) 开发版本号
-        if (!string.IsNullOrEmpty(fixedDevVersion))
+        // a-2) 开发版本号：versions 类型字段，必须写成版本数组，ApplyFieldByName 的文本/选项逻辑不适用
+        string? versionFieldId = null;
+        var versionValue = fixedDevVersion.Trim();
+        if (!string.IsNullOrEmpty(versionValue))
         {
-            ApplyFieldByName(newFields, fields, nameToId,
-                new[] { "开发版本号", "版本号", "开发版本" },
-                fixedDevVersion, fieldOptions, fieldSchemaTypes, logger);
+            var (cfId, value) = await ApplyDevVersionFieldAsync(nameToId, versionValue, logger);
+            if (cfId != null)
+            {
+                versionFieldId = cfId;
+                newFields[cfId] = value!;
+            }
         }
 
         // b) 责任科室
@@ -382,6 +387,23 @@ public class OACreateReqService
                 catch (Exception ex)
                 {
                     logger($"[补设失败] labels: {ex.Message}");
+                }
+            }
+            // 版本号被创建屏幕过滤时，用 update 补设
+            if (versionFieldId != null && removedFields.Contains(versionFieldId))
+            {
+                try
+                {
+                    var versionBlock = new JObject
+                    {
+                        [versionFieldId] = new JArray(new JObject { ["set"] = (JArray)newFields[versionFieldId]! })
+                    };
+                    await _jira.UpdateIssueOperationsAsync(newKey, versionBlock);
+                    logger($"[补设] 已通过 update 操作设置 开发版本号 = {versionValue}");
+                }
+                catch (Exception ex)
+                {
+                    logger($"[补设失败] 开发版本号: {ex.Message}");
                 }
             }
         }
@@ -643,6 +665,66 @@ public class OACreateReqService
             return;
         }
         logger($"[跳过] {label}({cfId}) 模板结构未知，忽略");
+    }
+
+    /// <summary>开发版本号（versions 类型字段）：按名称解析项目版本后写成版本数组</summary>
+    private async Task<(string? cfId, JArray? value)> ApplyDevVersionFieldAsync(
+        Dictionary<string, string> nameToId, string versionValue, Action<string> logger)
+    {
+        var candidates = new[] { "开发版本号", "版本号", "开发版本" };
+        var cfId = ResolveCustomFieldId(nameToId, candidates);
+        if (cfId == null)
+        {
+            logger($"[跳过] 未在模板中找到字段：{string.Join("/", candidates)}");
+            return (null, null);
+        }
+        var versionArr = await BuildVersionArrayAsync(cfId, versionValue, logger);
+        if (versionArr == null) return (null, null);
+        logger($"[设置] 开发版本号 = {versionValue}");
+        return (cfId, versionArr);
+    }
+
+    /// <summary>把版本名称解析为 REQ 项目的版本对象数组；找不到时按名称直写，由 Jira 校验</summary>
+    private async Task<JArray?> BuildVersionArrayAsync(string cfId, string versionValue, Action<string> logger)
+    {
+        JToken ver;
+        try
+        {
+            var versions = await _jira.GetProjectVersionsAsync("REQ");
+            var match = FindVersionByName(versions.Select(v => (v.Id, v.Name)).ToList(), versionValue);
+            if (match == null)
+            {
+                logger($"[跳过] 开发版本号({cfId}) 在 REQ 项目版本中未找到匹配 '{versionValue}'");
+                return null;
+            }
+            ver = new JObject { ["id"] = match.Value.Id, ["name"] = match.Value.Name };
+        }
+        catch (Exception ex)
+        {
+            // 查不到版本列表时退回按名称写入（Jira 接受已存在的版本名）
+            logger($"[版本] 查询 REQ 项目版本失败: {ex.Message}，按名称直写");
+            ver = new JObject { ["name"] = versionValue };
+        }
+        return new JArray(ver);
+    }
+
+    /// <summary>版本名称匹配：精确 > 忽略大小写/空格 > 包含</summary>
+    private static (string Id, string Name)? FindVersionByName(List<(string Id, string Name)> versions, string target)
+    {
+        foreach (var v in versions)
+            if (v.Name == target) return v;
+        var trimmed = target.Trim();
+        foreach (var v in versions)
+            if (v.Name.Trim().Equals(trimmed, StringComparison.OrdinalIgnoreCase)) return v;
+        foreach (var v in versions)
+        {
+            var name = v.Name.Trim();
+            if (!string.IsNullOrEmpty(name) &&
+                (name.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                 trimmed.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                return v;
+        }
+        return null;
     }
 
     /// <summary>选项列表的日志展示：最多 8 项，超出时只给总数，避免一行日志过长</summary>

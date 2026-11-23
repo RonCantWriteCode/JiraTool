@@ -221,18 +221,22 @@ actor OACreateReqService {
             logger: logger
         )
 
-        // a-2) 开发版本号
-        if !fixedDevVersion.isEmpty {
-            applyFieldByName(
-                newFields: &newFields,
-                templateFields: fields,
-                nameToId: nameToId,
-                candidateNames: ["开发版本号", "版本号", "开发版本"],
-                stringValue: fixedDevVersion,
-                fieldOptions: fieldOptions,
-                fieldSchemaTypes: fieldSchemaTypes,
-                logger: logger
-            )
+        // a-2) 开发版本号：versions 类型字段，必须写成版本数组，applyFieldByName 的文本/选项逻辑不适用
+        var versionFieldId: String?
+        var versionObject: Any?
+        let versionValue = fixedDevVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !versionValue.isEmpty {
+            let candidates = ["开发版本号", "版本号", "开发版本"]
+            if let cfId = resolveCustomFieldId(nameToId: nameToId, candidates: candidates) {
+                if let value = await buildVersionArray(cfId: cfId, versionValue: versionValue, logger: logger) {
+                    newFields[cfId] = value
+                    versionFieldId = cfId
+                    versionObject = value
+                    logger("[设置] 开发版本号 = \(versionValue)")
+                }
+            } else {
+                logger("[跳过] 未在模板中找到字段：\(candidates.joined(separator: "/"))")
+            }
         }
 
         // b) 责任科室
@@ -445,6 +449,18 @@ actor OACreateReqService {
                     logger("[补设] 已通过 update 操作设置 labels: \(labels.joined(separator: ", "))")
                 } catch {
                     logger("[补设失败] labels: \(error.localizedDescription)")
+                }
+            }
+            // 版本号被创建屏幕过滤时，用 update 补设
+            if let cfId = versionFieldId, removed.contains(cfId), let value = versionObject {
+                do {
+                    let updateBlock: [String: Any] = [
+                        cfId: [["set": value]]
+                    ]
+                    try await jira.updateIssueOperations(newKey, update: updateBlock)
+                    logger("[补设] 已通过 update 操作设置 开发版本号 = \(versionValue)")
+                } catch {
+                    logger("[补设失败] 开发版本号: \(error.localizedDescription)")
                 }
             }
         }
@@ -700,6 +716,35 @@ actor OACreateReqService {
             return
         }
         logger("[跳过] \(label)(\(cfId)) 模板结构未知，忽略")
+    }
+
+    /// 把版本名称解析为 REQ 项目的版本对象数组；找不到时返回 nil，查询失败时退回按名称直写
+    private func buildVersionArray(cfId: String, versionValue: String, logger: (String) -> Void) async -> Any? {
+        do {
+            let versions = try await jira.getProjectVersions(project: "REQ")
+            guard let match = findVersion(versions: versions, target: versionValue) else {
+                logger("[跳过] 开发版本号(\(cfId)) 在 REQ 项目版本中未找到匹配 '\(versionValue)'")
+                return nil
+            }
+            return [["id": match.id, "name": match.name]]
+        } catch {
+            // 查不到版本列表时退回按名称写入（Jira 接受已存在的版本名）
+            logger("[版本] 查询 REQ 项目版本失败: \(error.localizedDescription)，按名称直写")
+            return [["name": versionValue]]
+        }
+    }
+
+    /// 版本名称匹配：精确 > 忽略大小写/空格 > 包含
+    private func findVersion(versions: [JiraVersion], target: String) -> JiraVersion? {
+        if let exact = versions.first(where: { $0.name == target }) { return exact }
+        let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let ci = versions.first(where: {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(trimmed) == .orderedSame
+        }) { return ci }
+        return versions.first(where: {
+            let name = $0.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !name.isEmpty && (name.localizedCaseInsensitiveContains(trimmed) || trimmed.localizedCaseInsensitiveContains(name))
+        })
     }
 
     /// 选项列表的日志展示：最多 8 项，超出时只给总数，避免一行日志过长
