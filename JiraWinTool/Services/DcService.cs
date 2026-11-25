@@ -437,7 +437,10 @@ public class DcService
 
                 // 克隆模板普通字段
                 foreach (var id in cloneFieldIds)
-                    newFields[id] = (JToken)fields[id].DeepClone();
+                {
+                    if (fields[id] is not { } cloneValue) continue;
+                    newFields[id] = cloneValue.DeepClone();
+                }
                 if (cloneFieldIds.Count > 0)
                     logger($"{tag} [设置] 克隆模板字段 {cloneFieldIds.Count} 个");
 

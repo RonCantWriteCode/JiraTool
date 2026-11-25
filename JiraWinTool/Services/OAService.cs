@@ -231,8 +231,9 @@ public partial class OAService
     // MARK: - Diagnostic
 
     /// <summary>诊断下载：暴力尝试所有可能的 URL 组合并保存报告</summary>
-    public async Task DiagnoseDownloadAsync(OAAttachment attachment, string baseURL, string? referer = null)
+    public async Task DiagnoseDownloadAsync(OAAttachment attachment, string? baseURL, string? referer = null)
     {
+        baseURL ??= "";
         var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var dir = Path.Combine(AppConfig.AppDataDir, "oa_diagnosis");
         Directory.CreateDirectory(dir);

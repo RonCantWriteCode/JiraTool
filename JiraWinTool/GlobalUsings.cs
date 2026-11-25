@@ -17,5 +17,6 @@ global using DataFormats = System.Windows.DataFormats;
 global using MessageBox = System.Windows.MessageBox;
 global using Clipboard = System.Windows.Clipboard;
 global using Button = System.Windows.Controls.Button;
+global using CheckBox = System.Windows.Controls.CheckBox;
 global using Orientation = System.Windows.Controls.Orientation;
 global using System.Windows.Media.Imaging;

@@ -893,8 +893,9 @@ public class OACreateReqService
     }
 
     /// <summary>从 OA 链接提取 baseURL（强制 https）</summary>
-    private static string ExtractBaseURL(string link)
+    private static string? ExtractBaseURL(string? link)
     {
+        if (string.IsNullOrWhiteSpace(link)) return null;
         try
         {
             var uri = new Uri(link);
