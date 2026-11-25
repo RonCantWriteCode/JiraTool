@@ -54,6 +54,8 @@ public class DcItem
     public string Summary { get; set; } = "";
     /// <summary>DC 描述/变更内容（默认取目录内文本文件内容汇总）</summary>
     public string Description { get; set; } = "";
+    /// <summary>目录对应的 SVN 完整地址（SVN 前置地址 + 目录名；未配置前置地址时为空）</summary>
+    public string SvnUrl { get; set; } = "";
     public List<DcFileEntry> Files { get; set; } = new();
     /// <summary>本次批量创建成功后回写的 DC Key（未创建时为空）</summary>
     public string LastCreatedKey { get; set; } = "";
@@ -100,6 +102,8 @@ public class DcService
         ["配管系统"] = Opt("Y辅助支持类", "10886", "969 微-配置管理系统", "14633"),
         ["费管系统"] = Opt("A核心出单类", "10851", "119 销售费用管理系统（费管）", "10868"),
         ["产品工厂"] = Opt("Y辅助支持类", "10886", "D11 产品工厂", "14392"),
+        ["工作台"] = Opt("A核心出单类", "10851", "A09 核保工作台", "14340"),
+        ["再保系统"] = Opt("A核心出单类", "10851", "A04 新核心再保系统", "12403"),
     };
 
     private static DcSystemOption Opt(string pv, string pid, string cv, string cid) => new()
@@ -147,8 +151,8 @@ public class DcService
 
     // MARK: - 目录扫描
 
-    /// <summary>扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单与文本内容）</summary>
-    public List<DcItem> ScanDirectory(string rootPath)
+    /// <summary>扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单与文本内容）；svnBase 非空时拼接目录名生成 SVN 地址</summary>
+    public List<DcItem> ScanDirectory(string rootPath, string svnBase = "")
     {
         if (!Directory.Exists(rootPath))
             throw new DirectoryNotFoundException($"目录不存在: {rootPath}");
@@ -170,6 +174,8 @@ public class DcService
         {
             var dirName = System.IO.Path.GetFileName(dir);
             var reqKey = Regex.Match(dirName, @"REQ-\d+").Value;
+            var baseTrimmed = (svnBase ?? "").Trim().TrimEnd('/');
+            var svnUrl = baseTrimmed.Length > 0 ? $"{baseTrimmed}/{dirName}" : "";
 
             // 先读取目录内所有文件，标注各自系统名
             var entries = new List<DcFileEntry>();
@@ -218,6 +224,7 @@ public class DcService
                     DirectoryName = dirName,
                     DirectoryPath = dir,
                     ReqKey = reqKey,
+                    SvnUrl = svnUrl,
                     SystemName = sysName,
                     SystemOption = SystemMap.TryGetValue(sysName, out var opt) ? opt : null,
                     Summary = string.IsNullOrEmpty(sysName) ? dirName : $"{dirName} {sysName}",
@@ -230,28 +237,39 @@ public class DcService
         return items;
     }
 
-    /// <summary>把目录内文本文件内容汇总为 DC 变更描述</summary>
+    /// <summary>文件的展示地址：SVN 前置地址配置时用 SVN 文件地址（目录SVN+文件名），否则仅文件名（不使用本地地址）</summary>
+    private static string FileDisplayUrl(DcItem item, DcFileEntry f) =>
+        string.IsNullOrEmpty(item.SvnUrl) ? f.Name : $"{item.SvnUrl}/{f.Name}";
+
+    /// <summary>把目录内扫描的文件清单（SVN 地址）与文本内容汇总为 DC 变更描述</summary>
     private static string BuildDescriptionFromFiles(DcItem item)
     {
         var sb = new StringBuilder();
+
+        // 文件清单：使用 SVN 地址，不使用本地地址
+        if (item.Files.Count > 0)
+        {
+            sb.AppendLine("【文件清单】");
+            foreach (var f in item.Files) sb.AppendLine(FileDisplayUrl(item, f));
+            sb.AppendLine();
+        }
+
         var textFiles = item.Files.Where(f => f.IsText && !string.IsNullOrWhiteSpace(f.Text)).ToList();
         foreach (var f in textFiles)
         {
-            if (sb.Length > 0) sb.AppendLine();
-            sb.AppendLine($"【{f.Name}】");
+            sb.AppendLine($"【{FileDisplayUrl(item, f)}】");
             sb.AppendLine(f.Text.Trim());
+            sb.AppendLine();
         }
-        var binaryNames = item.Files.Where(f => !f.IsText).Select(f => f.Name).ToList();
-        if (binaryNames.Count > 0)
+
+        if (item.Files.Count == 0)
+            sb.AppendLine($"（{item.DirectoryName} 目录无内容，请手工填写变更内容）");
+
+        if (!string.IsNullOrEmpty(item.SvnUrl))
         {
             if (sb.Length > 0) sb.AppendLine();
-            sb.AppendLine("【附件文件】");
-            foreach (var n in binaryNames) sb.AppendLine(n);
+            sb.Append($"SVN地址：{item.SvnUrl}");
         }
-        if (sb.Length == 0)
-            sb.AppendLine($"（{item.DirectoryName} 目录无内容，请手工填写变更内容）");
-        sb.AppendLine();
-        sb.Append($"本地目录：{item.DirectoryPath}");
         return sb.ToString();
     }
 
@@ -291,6 +309,7 @@ public class DcService
     /// <param name="fixedLabels">固定字段：标签（多个用英文逗号分隔）</param>
     /// <param name="fixedAssignee">固定字段：经办人（空则用登录账号）</param>
     /// <param name="extraAttachmentPaths">固定附件：本地文件路径（多个用换行或分号分隔），上传到每个新建 DC</param>
+    /// <param name="fixedChangeReason">变更原因：留空则复制模板 DC 内容，非空则覆盖写入</param>
     /// <param name="rawLogger">日志回调（[设置] 行按两端约定自动聚合）</param>
     /// <returns>成功创建的 DC Key 列表</returns>
     public async Task<List<string>> CreateFromItemsAsync(
@@ -299,6 +318,7 @@ public class DcService
         string fixedLabels,
         string fixedAssignee,
         string extraAttachmentPaths,
+        string fixedChangeReason,
         Action<string> rawLogger)
     {
         var templateKey = templateDcKey.Trim();
@@ -449,11 +469,13 @@ public class DcService
                 {
                     if (item.SystemOption is { } opt)
                     {
+                        var child = new JObject { ["value"] = opt.ChildValue };
+                        if (!string.IsNullOrEmpty(opt.ChildId)) child["id"] = opt.ChildId;
                         newFields[systemFieldId] = new JObject
                         {
                             ["value"] = opt.ParentValue,
                             ["id"] = opt.ParentId,
-                            ["child"] = new JObject { ["value"] = opt.ChildValue, ["id"] = opt.ChildId }
+                            ["child"] = child
                         };
                         logger($"[设置] 系统 = {opt.ParentValue} > {opt.ChildValue}");
                     }
@@ -471,6 +493,22 @@ public class DcService
                 {
                     newFields[changeFieldId] = item.Description;
                     logger($"[设置] 变更内容 = {item.DirectoryName}");
+                }
+
+                // 变更原因：非空时覆盖模板克隆值；留空则保持克隆（即复制模板内容）
+                var reason = fixedChangeReason?.Trim() ?? "";
+                if (!string.IsNullOrEmpty(reason))
+                {
+                    var reasonFieldId = ResolveCustomFieldId(nameToId, new[] { "变更原因" });
+                    if (reasonFieldId != null)
+                    {
+                        newFields[reasonFieldId] = reason;
+                        logger($"[设置] 变更原因 = {reason}");
+                    }
+                    else
+                    {
+                        logger("[警告] 模板无「变更原因」字段，录入的变更原因未写入");
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(assignee))

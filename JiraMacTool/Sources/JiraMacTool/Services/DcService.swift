@@ -57,6 +57,8 @@ final class DcItem: Identifiable, ObservableObject {
     @Published var linkReq: Bool = true
     @Published var summary: String
     @Published var descriptionText: String
+    /// 目录对应的 SVN 完整地址（SVN 前置地址 + 目录名；未配置前置地址时为空）
+    var svnUrl: String = ""
     /// 页面状态列：待创建 / 创建中... / 失败 / DC Key
     @Published var status: String = "待创建"
     var files: [DcFileEntry] = []
@@ -123,6 +125,8 @@ actor DcService {
         "配管系统": DcSystemOption(parentValue: "Y辅助支持类", parentId: "10886", childValue: "969 微-配置管理系统", childId: "14633"),
         "费管系统": DcSystemOption(parentValue: "A核心出单类", parentId: "10851", childValue: "119 销售费用管理系统（费管）", childId: "10868"),
         "产品工厂": DcSystemOption(parentValue: "Y辅助支持类", parentId: "10886", childValue: "D11 产品工厂", childId: "14392"),
+        "工作台": DcSystemOption(parentValue: "A核心出单类", parentId: "10851", childValue: "A09 核保工作台", childId: "14340"),
+        "再保系统": DcSystemOption(parentValue: "A核心出单类", parentId: "10851", childValue: "A04 新核心再保系统", childId: "12403"),
     ]
 
     /// 从文件名提取系统名：最后一个紧跟中文的下划线之后，连续的中文串。取不到返回空。
@@ -145,8 +149,8 @@ actor DcService {
 
     // MARK: - 目录扫描
 
-    /// 扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单与文本内容）
-    nonisolated func scanDirectory(_ rootPath: String) throws -> [DcItem] {
+    /// 扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单与文本内容）；svnBase 非空时拼接目录名生成 SVN 地址
+    nonisolated func scanDirectory(_ rootPath: String, svnBase: String = "") throws -> [DcItem] {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: rootPath, isDirectory: &isDir), isDir.boolValue else {
             throw DcError.directoryNotFound(rootPath)
@@ -172,6 +176,7 @@ actor DcService {
         }
 
         var items: [DcItem] = []
+        let svnBaseTrimmed = svnBase.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         for dirPath in reqDirPaths {
             let dirName = (dirPath as NSString).lastPathComponent
             let reqKey = Self.extractReqKey(dirName)
@@ -209,6 +214,7 @@ actor DcService {
             for key in orderedKeys {
                 let item = DcItem(directoryName: dirName, directoryPath: dirPath, reqKey: reqKey,
                                   systemName: key, systemOption: Self.systemMap[key])
+                if !svnBaseTrimmed.isEmpty { item.svnUrl = "\(svnBaseTrimmed)/\(dirName)" }
                 item.files = grouped[key] ?? []
                 item.descriptionText = Self.buildDescription(from: item)
                 items.append(item)
@@ -217,25 +223,36 @@ actor DcService {
         return items
     }
 
-    /// 把目录内文本文件内容汇总为 DC 变更描述
+    /// 文件的展示地址：SVN 前置地址配置时用 SVN 文件地址（目录SVN+文件名），否则仅文件名（不使用本地地址）
+    private static func fileDisplayUrl(_ item: DcItem, _ f: DcFileEntry) -> String {
+        item.svnUrl.isEmpty ? f.name : "\(item.svnUrl)/\(f.name)"
+    }
+
+    /// 把目录内扫描的文件清单（SVN 地址）与文本内容汇总为 DC 变更描述
     private static func buildDescription(from item: DcItem) -> String {
         var lines: [String] = []
+
+        // 文件清单：使用 SVN 地址，不使用本地地址
+        if !item.files.isEmpty {
+            lines.append("【文件清单】")
+            for f in item.files { lines.append(fileDisplayUrl(item, f)) }
+            lines.append("")
+        }
+
         for f in item.files where f.isText && !f.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if !lines.isEmpty { lines.append("") }
-            lines.append("【\(f.name)】")
+            lines.append("【\(fileDisplayUrl(item, f))】")
             lines.append(f.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            lines.append("")
         }
-        let binaryNames = item.files.filter { !$0.isText }.map(\.name)
-        if !binaryNames.isEmpty {
-            if !lines.isEmpty { lines.append("") }
-            lines.append("【附件文件】")
-            lines.append(contentsOf: binaryNames)
-        }
-        if lines.isEmpty {
+
+        if item.files.isEmpty {
             lines.append("（\(item.directoryName) 目录无内容，请手工填写变更内容）")
         }
-        lines.append("")
-        lines.append("本地目录：\(item.directoryPath)")
+
+        if !item.svnUrl.isEmpty {
+            if !lines.isEmpty { lines.append("") }
+            lines.append("SVN地址：\(item.svnUrl)")
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -300,6 +317,7 @@ actor DcService {
         fixedLabels: String,
         fixedAssignee: String,
         extraAttachmentPaths: String,
+        fixedChangeReason: String,
         logger rawLogger: @escaping @Sendable (String) -> Void
     ) async throws -> [String] {
         // 日志精简：连续的『[设置] xxx』行合并成一行输出（与 OACreateReqService 约定一致）
@@ -426,10 +444,12 @@ actor DcService {
                 // 『系统』级联字段：按固定映射表写入父/子选项（含 id）
                 if let systemFieldId = systemFieldId {
                     if let opt = item.systemOption {
+                        var child: [String: Any] = ["value": opt.childValue]
+                        if !opt.childId.isEmpty { child["id"] = opt.childId }
                         let cascading: [String: Any] = [
                             "value": opt.parentValue,
                             "id": opt.parentId,
-                            "child": ["value": opt.childValue, "id": opt.childId],
+                            "child": child,
                         ]
                         newFields[systemFieldId] = cascading
                         logger("[设置] 系统 = \(opt.parentValue) > \(opt.childValue)")
@@ -445,6 +465,17 @@ actor DcService {
                    Self.isPlainTextTemplateValue(fields[changeFieldId]) {
                     newFields[changeFieldId] = item.descriptionText
                     logger("[设置] 变更内容 = \(item.directoryName)")
+                }
+
+                // 变更原因：非空时覆盖模板克隆值；留空则保持克隆（即复制模板内容）
+                let reason = fixedChangeReason.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !reason.isEmpty {
+                    if let reasonFieldId = resolveCustomFieldId(nameToId: nameToId, candidates: ["变更原因"]) {
+                        newFields[reasonFieldId] = reason
+                        logger("[设置] 变更原因 = \(reason)")
+                    } else {
+                        logger("[警告] 模板无「变更原因」字段，录入的变更原因未写入")
+                    }
                 }
 
                 if !assignee.isEmpty { newFields["assignee"] = ["name": assignee] }

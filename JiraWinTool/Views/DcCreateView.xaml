@@ -19,9 +19,17 @@
                     Placeholder="选择包含 REQ-xxxxx 子目录的根目录"
                     Text="{Binding RootDir, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                     LabelWidth="90"/>
+                <controls:LabeledField Label="SVN前置地址"
+                    Placeholder="如 http://svn.sinosafe.com.cn:1580/svn/NEWPCIS/DC/2026（拼接目录名作为 SVN 地址；留空则用本地目录）"
+                    Text="{Binding SvnBase, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                    LabelWidth="90"/>
                 <controls:LabeledField Label="模板 DC"
                     Placeholder="如 DC-123（用作字段参考；首次填入后自动保存）"
                     Text="{Binding TemplateDcKey, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                    LabelWidth="90"/>
+                <controls:LabeledField Label="变更原因"
+                    Placeholder="留空则复制模板 DC 的变更原因；填写后覆盖写入新建 DC"
+                    Text="{Binding FixedChangeReason, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
                     LabelWidth="90"/>
                 <controls:LabeledField Label="标签"
                     Placeholder="如『数据变更』，多个用英文逗号分隔"
@@ -151,6 +159,8 @@
                                             Binding="{Binding DirectoryDisplay}"/>
                         <DataGridTextColumn Header="系统" Width="170" IsReadOnly="True"
                                             Binding="{Binding SystemDisplay}"/>
+                        <DataGridTextColumn Header="SVN地址" Width="200" IsReadOnly="True"
+                                            Binding="{Binding SvnUrl}"/>
                         <DataGridTextColumn Header="摘要（可修改）" Width="200"
                                             Binding="{Binding Summary, UpdateSourceTrigger=PropertyChanged}"/>
                         <DataGridTemplateColumn Header="变更内容（可修改）" Width="*">

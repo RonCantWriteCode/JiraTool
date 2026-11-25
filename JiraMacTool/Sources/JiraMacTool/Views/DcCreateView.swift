@@ -6,8 +6,10 @@ import AppKit
 struct DcCreateView: View {
     // 输入
     @AppStorage("dc_root_dir") private var rootDir: String = ""
+    @AppStorage("dc_svn_base") private var svnBase: String = ""
     @AppStorage("dc_template_key") private var templateDcKey: String = ""
     @AppStorage("dc_fixed_labels") private var fixedLabels: String = ""
+    @AppStorage("dc_fixed_change_reason") private var fixedChangeReason: String = ""
     @AppStorage("dc_fixed_assignee") private var fixedAssignee: String = ""
     @AppStorage("dc_test_attach") private var testAttachPaths: String = ""
 
@@ -43,6 +45,8 @@ struct DcCreateView: View {
                         .buttonStyle(.bordered)
                     }
                     LabeledField(label: "模板 DC", placeholder: "如 DC-123（用作字段参考；首次填入后自动保存）", text: $templateDcKey, labelWidth: 80)
+                    LabeledField(label: "SVN前置地址", placeholder: "如 http://svn.sinosafe.com.cn:1580/svn/NEWPCIS/DC/2026（拼接目录名作为 SVN 地址；留空则用本地目录）", text: $svnBase, labelWidth: 80)
+                    LabeledField(label: "变更原因", placeholder: "留空则复制模板 DC 的变更原因；填写后覆盖写入新建 DC", text: $fixedChangeReason, labelWidth: 80)
                     LabeledField(label: "标签", placeholder: "如『数据变更』，多个用英文逗号分隔", text: $fixedLabels, labelWidth: 80)
                     LabeledField(label: "经办人", placeholder: "登录账号", text: $fixedAssignee, labelWidth: 80)
 
@@ -187,13 +191,14 @@ struct DcCreateView: View {
         let dir = rootDir.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else { return }
         isScanning = true
+        let base = svnBase
         appendLog("开始扫描：\(dir)")
 
         Task {
             defer { Task { @MainActor in isScanning = false } }
             do {
                 let scanned = try await Task.detached {
-                    try DcService.shared.scanDirectory(dir)
+                    try DcService.shared.scanDirectory(dir, svnBase: base)
                 }.value
                 items = scanned
                 appendLog("扫描完成：共 \(scanned.count) 个待创建 DC（已按文件名系统名拆分）")
@@ -230,6 +235,7 @@ struct DcCreateView: View {
                     fixedLabels: fixedLabels,
                     fixedAssignee: fixedAssignee,
                     extraAttachmentPaths: testAttachPaths,
+                    fixedChangeReason: fixedChangeReason,
                     logger: { line in
                         Task { @MainActor in self.appendLog(line) }
                     }
@@ -305,6 +311,13 @@ struct DcItemRowView: View {
                     Text(item.systemDisplay)
                         .font(.system(size: 10))
                         .foregroundColor(.blue)
+                    if !item.svnUrl.isEmpty {
+                        Text("SVN: \(item.svnUrl)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
                 .frame(width: 150, alignment: .leading)
 

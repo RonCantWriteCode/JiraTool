@@ -24,6 +24,8 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         public string DirectoryName => Model.DirectoryName;
         public string DirectoryDisplay => $"{Model.DirectoryName}\n{Model.ReqKey}";
         public string SystemName => Model.SystemName;
+        /// <summary>SVN 地址（前置地址+目录名；未配前置地址时显示本地目录）</summary>
+        public string SvnUrl => string.IsNullOrEmpty(Model.SvnUrl) ? Model.DirectoryPath : Model.SvnUrl;
         /// <summary>系统列显示：映射到的级联选项，或标注无映射/未识别</summary>
         public string SystemDisplay => Model.SystemOption != null
             ? Model.SystemOption.Display
@@ -88,6 +90,10 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         DependencyProperty.Register(nameof(RootDir), typeof(string), typeof(DcCreateView),
             new PropertyMetadata("", (d, _) => ((DcCreateView)d).SaveCustom("dc_root_dir", ((DcCreateView)d).RootDir)));
 
+    public static readonly DependencyProperty SvnBaseProperty =
+        DependencyProperty.Register(nameof(SvnBase), typeof(string), typeof(DcCreateView),
+            new PropertyMetadata("", (d, _) => ((DcCreateView)d).SaveCustom("dc_svn_base", ((DcCreateView)d).SvnBase)));
+
     public static readonly DependencyProperty TemplateDcKeyProperty =
         DependencyProperty.Register(nameof(TemplateDcKey), typeof(string), typeof(DcCreateView),
             new PropertyMetadata("", (d, _) => ((DcCreateView)d).SaveCustom("dc_template_key", ((DcCreateView)d).TemplateDcKey)));
@@ -95,6 +101,10 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
     public static readonly DependencyProperty FixedLabelsProperty =
         DependencyProperty.Register(nameof(FixedLabels), typeof(string), typeof(DcCreateView),
             new PropertyMetadata("", (d, _) => ((DcCreateView)d).SaveCustom("dc_fixed_labels", ((DcCreateView)d).FixedLabels)));
+
+    public static readonly DependencyProperty FixedChangeReasonProperty =
+        DependencyProperty.Register(nameof(FixedChangeReason), typeof(string), typeof(DcCreateView),
+            new PropertyMetadata("", (d, _) => ((DcCreateView)d).SaveCustom("dc_fixed_change_reason", ((DcCreateView)d).FixedChangeReason)));
 
     public static readonly DependencyProperty FixedAssigneeProperty =
         DependencyProperty.Register(nameof(FixedAssignee), typeof(string), typeof(DcCreateView),
@@ -113,8 +123,12 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         DependencyProperty.Register(nameof(Logs), typeof(string), typeof(DcCreateView), new PropertyMetadata(""));
 
     public string RootDir { get => (string)GetValue(RootDirProperty); set => SetValue(RootDirProperty, value); }
+    /// <summary>SVN 前置地址：扫描时拼接 REQ 目录名生成 SVN 地址</summary>
+    public string SvnBase { get => (string)GetValue(SvnBaseProperty); set => SetValue(SvnBaseProperty, value); }
     public string TemplateDcKey { get => (string)GetValue(TemplateDcKeyProperty); set => SetValue(TemplateDcKeyProperty, value); }
     public string FixedLabels { get => (string)GetValue(FixedLabelsProperty); set => SetValue(FixedLabelsProperty, value); }
+    /// <summary>变更原因：留空则复制模板 DC 内容，非空则覆盖写入新建 DC</summary>
+    public string FixedChangeReason { get => (string)GetValue(FixedChangeReasonProperty); set => SetValue(FixedChangeReasonProperty, value); }
     public string FixedAssignee { get => (string)GetValue(FixedAssigneeProperty); set => SetValue(FixedAssigneeProperty, value); }
     public string TestAttachPaths { get => (string)GetValue(TestAttachPathsProperty); set => SetValue(TestAttachPathsProperty, value); }
     /// <summary>测试附件友好展示（仅文件名）</summary>
@@ -137,9 +151,11 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
 
         // 恢复已保存配置
         RootDir = AppConfig.Shared.GetCustom("dc_root_dir");
+        SvnBase = AppConfig.Shared.GetCustom("dc_svn_base");
         var savedTpl = AppConfig.Shared.GetCustom("dc_template_key");
         TemplateDcKey = !string.IsNullOrEmpty(savedTpl) ? savedTpl : "DC-6296";
         FixedLabels = AppConfig.Shared.GetCustom("dc_fixed_labels");
+        FixedChangeReason = AppConfig.Shared.GetCustom("dc_fixed_change_reason");
         var savedAssignee = AppConfig.Shared.GetCustom("dc_fixed_assignee");
         FixedAssignee = !string.IsNullOrEmpty(savedAssignee) ? savedAssignee : AppConfig.Shared.JiraUser;
         TestAttachPaths = AppConfig.Shared.GetCustom("dc_test_attach");
@@ -197,7 +213,7 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         ScanProgress.Text = "扫描中...";
         try
         {
-            var items = await Task.Run(() => DcService.Shared.ScanDirectory(dir));
+            var items = await Task.Run(() => DcService.Shared.ScanDirectory(dir, SvnBase));
             _rows.Clear();
             foreach (var item in items)
             {
@@ -268,7 +284,7 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         try
         {
             var keys = await DcService.Shared.CreateFromItemsAsync(
-                tpl, items, FixedLabels, FixedAssignee, TestAttachPaths,
+                tpl, items, FixedLabels, FixedAssignee, TestAttachPaths, FixedChangeReason,
                 line => Dispatcher.Invoke(() => AppendLog(line)));
 
             // 回填每行状态
