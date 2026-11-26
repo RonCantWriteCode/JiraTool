@@ -7,7 +7,7 @@ struct DcCreateView: View {
     // 输入
     @AppStorage("dc_root_dir") private var rootDir: String = ""
     @AppStorage("dc_svn_base") private var svnBase: String = ""
-    @AppStorage("dc_template_key") private var templateDcKey: String = ""
+    @AppStorage("dc_template_key") private var templateDcKey: String = "DC-6273"
     @AppStorage("dc_fixed_labels") private var fixedLabels: String = ""
     @AppStorage("dc_fixed_change_reason") private var fixedChangeReason: String = ""
     @AppStorage("dc_fixed_assignee") private var fixedAssignee: String = ""
@@ -143,7 +143,7 @@ struct DcCreateView: View {
         .frame(minWidth: 720, minHeight: 500)
         .onAppear {
             if templateDcKey.isEmpty {
-                templateDcKey = "DC-6296"
+                templateDcKey = "DC-6273"
             }
             if fixedAssignee.isEmpty {
                 fixedAssignee = appConfig.jiraUser

@@ -153,7 +153,7 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
         RootDir = AppConfig.Shared.GetCustom("dc_root_dir");
         SvnBase = AppConfig.Shared.GetCustom("dc_svn_base");
         var savedTpl = AppConfig.Shared.GetCustom("dc_template_key");
-        TemplateDcKey = !string.IsNullOrEmpty(savedTpl) ? savedTpl : "DC-6296";
+        TemplateDcKey = !string.IsNullOrEmpty(savedTpl) ? savedTpl : "DC-6273";
         FixedLabels = AppConfig.Shared.GetCustom("dc_fixed_labels");
         FixedChangeReason = AppConfig.Shared.GetCustom("dc_fixed_change_reason");
         var savedAssignee = AppConfig.Shared.GetCustom("dc_fixed_assignee");
@@ -209,11 +209,13 @@ public partial class DcCreateView : UserControl, INotifyPropertyChanged
             return;
         }
 
+        // SvnBase 是 DependencyProperty，只能在 UI 线程读取，先捕获为局部变量再交给后台任务
+        var svnBase = SvnBase.Trim();
         ScanBtn.IsEnabled = false;
         ScanProgress.Text = "扫描中...";
         try
         {
-            var items = await Task.Run(() => DcService.Shared.ScanDirectory(dir, SvnBase));
+            var items = await Task.Run(() => DcService.Shared.ScanDirectory(dir, svnBase));
             _rows.Clear();
             foreach (var item in items)
             {

@@ -11,9 +11,6 @@ public class DcFileEntry
     public string Name { get; set; } = "";
     public string FullPath { get; set; } = "";
     public long Size { get; set; }
-    /// <summary>文本文件解析出的正文（二进制文件为空）</summary>
-    public string Text { get; set; } = "";
-    public bool IsText { get; set; }
     /// <summary>是否作为附件上传到 DC</summary>
     public bool SelectedAsAttachment { get; set; }
     /// <summary>从文件名解析出的系统名称（最后一个紧跟中文的下划线之后的中文串）</summary>
@@ -52,7 +49,7 @@ public class DcItem
     public bool LinkReq { get; set; } = true;
     /// <summary>DC 摘要（默认取对应 REQ 的标题）</summary>
     public string Summary { get; set; } = "";
-    /// <summary>DC 描述/变更内容（默认取目录内文本文件内容汇总）</summary>
+    /// <summary>DC 描述/变更内容（默认为目录内文件的 SVN 地址清单）</summary>
     public string Description { get; set; } = "";
     /// <summary>目录对应的 SVN 完整地址（SVN 前置地址 + 目录名；未配置前置地址时为空）</summary>
     public string SvnUrl { get; set; } = "";
@@ -64,7 +61,7 @@ public class DcItem
 /// <summary>
 /// 创建 DC（生产数据配置变更申请）服务：
 /// 扫描本地目录中 REQ- 开头的子目录，参考模板 DC 工单的字段结构批量创建 DC，
-/// 并把目录内文本文件内容汇总为变更描述、按勾选上传附件、关联对应 REQ。
+/// 变更内容为目录内文件的 SVN 地址清单，按勾选上传附件、关联对应 REQ。
 /// 字段容错重试机制与 OACreateReqService 保持一致。
 /// </summary>
 public class DcService
@@ -73,20 +70,6 @@ public class DcService
     private DcService() { }
 
     private readonly JiraService _jira = JiraService.Shared;
-
-    /// <summary>按文本处理的最大文件大小（超过则仅作为附件上传）</summary>
-    private const long MaxTextFileSize = 2 * 1024 * 1024;
-
-    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".sql", ".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm", ".log", ".sh", ".yaml", ".yml", ".properties",
-    };
-
-    static DcService()
-    {
-        // GBK 等代码页解码需要注册 CodePages 提供程序
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-    }
 
     /// <summary>
     /// 文件名系统名 → 『系统』级联选项 的固定映射表（父/子 value 与 id 均取自 Jira createmeta）。
@@ -151,7 +134,7 @@ public class DcService
 
     // MARK: - 目录扫描
 
-    /// <summary>扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单与文本内容）；svnBase 非空时拼接目录名生成 SVN 地址</summary>
+    /// <summary>扫描根目录下 REQ-开头的子目录，生成待创建 DC 条目（含文件清单）；svnBase 非空时拼接目录名生成 SVN 地址</summary>
     public List<DcItem> ScanDirectory(string rootPath, string svnBase = "")
     {
         if (!Directory.Exists(rootPath))
@@ -177,36 +160,22 @@ public class DcService
             var baseTrimmed = (svnBase ?? "").Trim().TrimEnd('/');
             var svnUrl = baseTrimmed.Length > 0 ? $"{baseTrimmed}/{dirName}" : "";
 
-            // 先读取目录内所有文件，标注各自系统名
+            // 先收集目录内所有文件，标注各自系统名（不读取文件正文）
             var entries = new List<DcFileEntry>();
             foreach (var file in Directory.GetFiles(dir).OrderBy(f => f))
             {
                 var name = System.IO.Path.GetFileName(file);
                 if (name.StartsWith("._") || name.Equals(".DS_Store", StringComparison.Ordinal)) continue;
 
-                var ext = System.IO.Path.GetExtension(name);
-                var size = new FileInfo(file).Length;
-                var isText = TextExtensions.Contains(ext) && size <= MaxTextFileSize;
                 var entry = new DcFileEntry
                 {
                     Name = name,
                     FullPath = file,
-                    Size = size,
-                    IsText = isText,
-                    // 默认：文本文件上传附件 + 内容进描述；Office/PDF 等仅上传附件
+                    Size = new FileInfo(file).Length,
+                    // 所有文件默认作为附件上传；变更内容只列 SVN 清单，不展示文件正文
                     SelectedAsAttachment = true,
                     SystemName = ExtractSystemName(name),
                 };
-                if (isText)
-                {
-                    try { entry.Text = ReadTextFile(file); }
-                    catch (Exception ex)
-                    {
-                        Log.Debug($"[DcService] 读取文本失败 {file}: {ex.Message}");
-                        entry.IsText = false;
-                        entry.Text = "";
-                    }
-                }
                 entries.Add(entry);
             }
 
@@ -241,62 +210,17 @@ public class DcService
     private static string FileDisplayUrl(DcItem item, DcFileEntry f) =>
         string.IsNullOrEmpty(item.SvnUrl) ? f.Name : $"{item.SvnUrl}/{f.Name}";
 
-    /// <summary>把目录内扫描的文件清单（SVN 地址）与文本内容汇总为 DC 变更描述</summary>
+    /// <summary>把目录内扫描的文件清单（SVN 地址）汇总为 DC 变更描述，不含文件正文</summary>
     private static string BuildDescriptionFromFiles(DcItem item)
     {
-        var sb = new StringBuilder();
-
-        // 文件清单：使用 SVN 地址，不使用本地地址
-        if (item.Files.Count > 0)
-        {
-            sb.AppendLine("【文件清单】");
-            foreach (var f in item.Files) sb.AppendLine(FileDisplayUrl(item, f));
-            sb.AppendLine();
-        }
-
-        var textFiles = item.Files.Where(f => f.IsText && !string.IsNullOrWhiteSpace(f.Text)).ToList();
-        foreach (var f in textFiles)
-        {
-            sb.AppendLine($"【{FileDisplayUrl(item, f)}】");
-            sb.AppendLine(f.Text.Trim());
-            sb.AppendLine();
-        }
-
         if (item.Files.Count == 0)
-            sb.AppendLine($"（{item.DirectoryName} 目录无内容，请手工填写变更内容）");
+            return $"（{item.DirectoryName} 目录无内容，请手工填写变更内容）";
 
-        if (!string.IsNullOrEmpty(item.SvnUrl))
-        {
-            if (sb.Length > 0) sb.AppendLine();
-            sb.Append($"SVN地址：{item.SvnUrl}");
-        }
-        return sb.ToString();
-    }
-
-    /// <summary>读取文本文件：优先 UTF-8（含 BOM），失败回退 GBK，再回退 latin1 保字节</summary>
-    private static string ReadTextFile(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        // UTF-8 BOM
-        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
-        try
-        {
-            var utf8 = new UTF8Encoding(false, true);
-            return utf8.GetString(bytes);
-        }
-        catch (DecoderFallbackException)
-        {
-            try
-            {
-                var gbk = Encoding.GetEncoding("GBK");
-                return gbk.GetString(bytes);
-            }
-            catch
-            {
-                return Encoding.Latin1.GetString(bytes);
-            }
-        }
+        var sb = new StringBuilder();
+        // 文件清单：使用 SVN 地址，不使用本地地址，也不列文件正文
+        sb.AppendLine("【文件清单】");
+        foreach (var f in item.Files) sb.AppendLine(FileDisplayUrl(item, f));
+        return sb.ToString().TrimEnd();
     }
 
     // MARK: - 批量创建

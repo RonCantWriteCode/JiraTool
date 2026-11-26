@@ -10,8 +10,6 @@ final class DcFileEntry: Identifiable, ObservableObject {
     let name: String
     let fullPath: String
     let size: Int
-    var text: String = ""
-    var isText: Bool = false
     /// 从文件名解析出的系统名称（最后一个紧跟中文的下划线之后的中文串）
     var systemName: String = ""
     /// 是否作为附件上传到 DC（页面勾选）
@@ -99,20 +97,13 @@ enum DcError: Error, LocalizedError {
 
 /// 创建 DC（生产数据配置变更申请）服务（对应 C# DcService.cs）：
 /// 扫描本地目录中 REQ- 开头的子目录，参考模板 DC 工单的字段结构批量创建 DC，
-/// 并把目录内文本文件内容汇总为变更描述、按勾选上传附件、关联对应 REQ。
+/// 变更内容为目录内文件的 SVN 地址清单，按勾选上传附件、关联对应 REQ。
 /// 字段容错重试机制与 OACreateReqService 保持一致。
 actor DcService {
     static let shared = DcService()
     private init() {}
 
     private let jira = JiraService.shared
-
-    /// 按文本处理的最大文件大小（超过则仅作为附件上传）
-    private static let maxTextFileSize = 2 * 1024 * 1024
-
-    private static let textExtensions: Set<String> = [
-        "sql", "txt", "md", "csv", "json", "xml", "html", "htm", "log", "sh", "yaml", "yml", "properties",
-    ]
 
     /// 文件名系统名 → 『系统』级联选项 的固定映射表（父/子 value 与 id 均取自 Jira createmeta）。
     /// 新增系统时在此补一行即可；匹配不到的系统名将留空由用户手工处理。
@@ -185,7 +176,7 @@ actor DcService {
                 .filter { !$0.hasPrefix("._") && $0 != ".DS_Store" }
                 .sorted { ($0 as NSString).localizedStandardCompare($1) == .orderedAscending }
 
-            // 先读取目录内所有文件，标注各自系统名
+            // 先收集目录内所有文件，标注各自系统名（不读取文件正文）
             var entries: [DcFileEntry] = []
             for fileName in fileNames {
                 let filePath = (dirPath as NSString).appendingPathComponent(fileName)
@@ -195,12 +186,6 @@ actor DcService {
                 let size = attrs[.size] as? NSNumber
                 let entry = DcFileEntry(name: fileName, fullPath: filePath, size: size?.intValue ?? 0)
                 entry.systemName = Self.extractSystemName(fileName)
-                let ext = (fileName as NSString).pathExtension.lowercased()
-                if Self.textExtensions.contains(ext), entry.size <= Self.maxTextFileSize,
-                   let text = Self.readTextFile(path: filePath) {
-                    entry.isText = true
-                    entry.text = text
-                }
                 entries.append(entry)
             }
 
@@ -228,46 +213,16 @@ actor DcService {
         item.svnUrl.isEmpty ? f.name : "\(item.svnUrl)/\(f.name)"
     }
 
-    /// 把目录内扫描的文件清单（SVN 地址）与文本内容汇总为 DC 变更描述
+    /// 把目录内扫描的文件清单（SVN 地址）汇总为 DC 变更描述，不含文件正文
     private static func buildDescription(from item: DcItem) -> String {
-        var lines: [String] = []
-
-        // 文件清单：使用 SVN 地址，不使用本地地址
-        if !item.files.isEmpty {
-            lines.append("【文件清单】")
-            for f in item.files { lines.append(fileDisplayUrl(item, f)) }
-            lines.append("")
-        }
-
-        for f in item.files where f.isText && !f.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lines.append("【\(fileDisplayUrl(item, f))】")
-            lines.append(f.text.trimmingCharacters(in: .whitespacesAndNewlines))
-            lines.append("")
-        }
-
         if item.files.isEmpty {
-            lines.append("（\(item.directoryName) 目录无内容，请手工填写变更内容）")
+            return "（\(item.directoryName) 目录无内容，请手工填写变更内容）"
         }
 
-        if !item.svnUrl.isEmpty {
-            if !lines.isEmpty { lines.append("") }
-            lines.append("SVN地址：\(item.svnUrl)")
-        }
+        // 文件清单：使用 SVN 地址，不使用本地地址，也不列文件正文
+        var lines: [String] = ["【文件清单】"]
+        for f in item.files { lines.append(fileDisplayUrl(item, f)) }
         return lines.joined(separator: "\n")
-    }
-
-    /// 读取文本文件：优先 UTF-8，失败回退 GBK，再回退 latin1 保字节
-    private static func readTextFile(path: String) -> String? {
-        guard let data = FileManager.default.contents(atPath: path) else { return nil }
-        // UTF-8 BOM
-        if data.count >= 3, data[0] == 0xEF, data[1] == 0xBB, data[2] == 0xBF {
-            return String(data: data.subdata(in: 3..<data.count), encoding: .utf8)
-        }
-        if let text = String(data: data, encoding: .utf8) { return text }
-        let gbkEncoding = CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
-        if let text = String(data: data, encoding: String.Encoding(rawValue: gbkEncoding)) { return text }
-        return String(data: data, encoding: .isoLatin1)
     }
 
     private static func extractReqKey(_ dirName: String) -> String {

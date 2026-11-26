@@ -15,10 +15,21 @@
                 Padding="16" Margin="0,12,0,12">
             <StackPanel>
                 <TextBlock Text="本地目录与模板" FontSize="14" FontWeight="SemiBold" Foreground="#0EA5E9" Margin="0,0,0,12"/>
-                <controls:LabeledField Label="本地目录"
-                    Placeholder="选择包含 REQ-xxxxx 子目录的根目录"
-                    Text="{Binding RootDir, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
-                    LabelWidth="90"/>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="选择目录..." Width="100" Height="28" Margin="8,0,0,0"
+                            Background="#E5E7EB" Foreground="#374151" BorderThickness="0"
+                            FontSize="12" Cursor="Hand" Click="BrowseDir_Click">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6"/>
+                            </Style>
+                        </Button.Resources>
+                    </Button>
+                    <controls:LabeledField Label="本地目录"
+                        Placeholder="选择包含 REQ-xxxxx 子目录的根目录"
+                        Text="{Binding RootDir, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
+                        LabelWidth="90"/>
+                </DockPanel>
                 <controls:LabeledField Label="SVN前置地址"
                     Placeholder="如 http://svn.sinosafe.com.cn:1580/svn/NEWPCIS/DC/2026（拼接目录名作为 SVN 地址；留空则用本地目录）"
                     Text="{Binding SvnBase, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
@@ -63,16 +74,7 @@
                     </Button>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <Button Content="选择目录..." Width="100" Height="34"
-                            Background="#E5E7EB" Foreground="#374151" BorderThickness="0"
-                            FontSize="13" Cursor="Hand" Click="BrowseDir_Click">
-                        <Button.Resources>
-                            <Style TargetType="Border">
-                                <Setter Property="CornerRadius" Value="8"/>
-                            </Style>
-                        </Button.Resources>
-                    </Button>
-                    <Button x:Name="ScanBtn" Content="扫描目录" Width="110" Height="34" Margin="8,0,0,0"
+                    <Button x:Name="ScanBtn" Content="扫描目录" Width="110" Height="34"
                             Background="#0EA5E9" Foreground="White" BorderThickness="0"
                             FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                             Click="ScanBtn_Click">
